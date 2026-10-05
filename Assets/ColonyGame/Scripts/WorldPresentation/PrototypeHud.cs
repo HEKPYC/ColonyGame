@@ -14,6 +14,9 @@ namespace ColonyGame.Presentation
         private readonly VisualElement root;
         private readonly VisualElement buildList;
         private readonly VisualElement placement;
+        private readonly VisualElement citizenPanel;
+        private readonly Label citizenInfo;
+        public event Action BuildListOpened;
         private readonly Label counts;
         private readonly Label selection;
         private readonly Label validity;
@@ -84,6 +87,10 @@ namespace ColonyGame.Presentation
             Text(placement, "R: Rotate | Esc: Cancel").style.fontSize = 11;
             placement.Add(new Button(() => { pointerInputFrame = Time.frameCount; cancel(); }) { text = "Cancel" });
             placement.style.display = DisplayStyle.None;
+            citizenPanel = Panel("citizen-info", column);
+            citizenInfo = Text(citizenPanel, "");
+            citizenPanel.style.flexShrink = 1;
+            citizenPanel.style.display = DisplayStyle.None;
             SetBuildListOpen(false);
         }
 
@@ -114,6 +121,7 @@ namespace ColonyGame.Presentation
         }
         public void SetBuildListOpen(bool open)
         {
+            if (open && !BuildListOpen) BuildListOpened?.Invoke();
             BuildListOpen = open;
             buildList.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
             buildButton.text = open ? "Close list (B)" : "Build (B)";
@@ -127,15 +135,22 @@ namespace ColonyGame.Presentation
                 if (blockingPanels.Contains(picked)) return true;
             return false;
         }
-        public void Update(SettlementState state, BuildingDefinition definition, int orientation, string status, int wildlifeCount = 0)
+        public void Update(SettlementState state, BuildingDefinition definition, int orientation, string status, int wildlifeCount = 0, int citizenCount = 0)
         {
-            counts.text = $"Claimed Tiles: {state.Territory.Count} | Buildings: {state.Buildings.Count}\nTown Hall Level: {state.TownHallLevel} (test override) | Wildlife: {wildlifeCount}";
+            counts.text = $"Claimed Tiles: {state.Territory.Count} | Buildings: {state.Buildings.Count}\nTown Hall Level: {state.TownHallLevel} (test override) | Wildlife: {wildlifeCount}\nCitizens: {citizenCount}";
             placement.style.display = definition == null ? DisplayStyle.None : DisplayStyle.Flex;
             if (definition == null) return;
             var footprint = definition.GetFootprint(orientation);
             selection.text = $"{definition.DisplayName}\nFootprint: {footprint.Width} x {footprint.Depth}";
             validity.text = status;
             validity.style.color = status.StartsWith("VALID") ? new Color(0.4f, 1f, 0.5f) : Color.white;
+        }
+        public void ShowCitizen(Citizen citizen)
+        {
+            citizenPanel.style.display = citizen == null ? DisplayStyle.None : DisplayStyle.Flex;
+            if(citizen == null) return;
+            var a=citizen.Attributes;
+            citizenInfo.text=$"{citizen.FirstName}\nSex: {citizen.Sex} | Age: {citizen.Age}\nProfession: {citizen.Profession}\nStrength: {a.Strength}\nDexterity: {a.Dexterity}\nIntelligence: {a.Intelligence}\nEndurance: {a.Endurance}\nCharisma: {a.Charisma}";
         }
         public void Dispose()
         {

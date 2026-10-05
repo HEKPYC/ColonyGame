@@ -19,6 +19,12 @@ namespace ColonyGame.Presentation
         [SerializeField] private int townHallOccupiedTileCount;
         [SerializeField, Range(0, 12)] private int wildlifePerSpecies = 2;
         [SerializeField, Range(1.1f, 3f)] private float wildlifeRunSpeedMultiplier = 1.8f;
+        [SerializeField, Min(.1f)] private float citizenWalkSpeed = .8f;
+        [SerializeField, Min(0)] private float citizenMinimumPause = 1f;
+        [SerializeField, Min(0)] private float citizenMaximumPause = 3f;
+        private CitizenSimulation citizens;
+        private CitizenView citizenView;
+        private Citizen selectedCitizen;
         private PrototypePalette palette;
         private Material[] tileMaterials;
         private PeacefulWildernessHabitat wildlifeHabitat;
@@ -43,6 +49,7 @@ namespace ColonyGame.Presentation
         {
             State = SettlementState.CreatePrototype();
             hud = new PrototypeHud(transform, State.AvailableBuildings, SelectBuilding, CancelPlacement);
+            hud.BuildListOpened += () => SelectCitizen(null);
             palette = new PrototypePalette(hallWalls);
             var shader = Resources.Load<Shader>("PrototypeTileCells");
             if (shader == null) throw new MissingReferenceException("PrototypeTileCells shader must be imported before Play Mode.");
@@ -57,6 +64,8 @@ namespace ColonyGame.Presentation
             wildlifeHabitat = new PeacefulWildernessHabitat(State.Territory, new WildlifeBounds(minX, minZ, maxX, maxZ));
             wildlife = new PeacefulWildlifeSystem(wildlifeHabitat, wildlifePerSpecies, runSpeedMultiplier: wildlifeRunSpeedMultiplier);
             wildlifeView = new PeacefulWildlifeView(transform, wildlife, palette);
+            citizens = CitizenSimulation.CreatePrototype(State, new CitizenMovementSettings(citizenWalkSpeed, citizenMinimumPause, citizenMaximumPause));
+            citizenView = new CitizenView(transform, citizens, palette);
             Debug.Log("Building prototype: temporary Town Hall Level 4; B toggles build menu; R rotates; left click places; Escape cancels.", this);
         }
         private void RefreshPresentation()
@@ -81,6 +90,8 @@ namespace ColonyGame.Presentation
             foreach (var building in State.Buildings)
                 SchematicBuildingView.Create(building, generatedRoot.transform, palette);
             CreateForest();
+            citizens?.ReconcileBuildings();
+            citizenView?.Sync(selectedCitizen);
             if (wildlifeHabitat != null)
             {
                 wildlifeHabitat.Bounds = new WildlifeBounds(minX, minZ, maxX, maxZ);
@@ -190,9 +201,17 @@ namespace ColonyGame.Presentation
         }
         private void SelectBuilding(BuildingDefinition definition)
         {
+            SelectCitizen(null);
             selectedBuilding = definition;
             orientationDegrees = 0;
             RebuildPreview();
+        }
+        private void SelectCitizen(Citizen citizen)
+        {
+            selectedCitizen = citizen;
+            if (citizen != null) hud.SetBuildListOpen(false);
+            hud.ShowCitizen(citizen);
+            citizenView?.Sync(citizen);
         }
         private void CancelPlacement()
         {
@@ -204,11 +223,12 @@ namespace ColonyGame.Presentation
         {
             if (State == null || hud == null) return;
             wildlifeView?.Tick(Time.deltaTime);
+            citizens?.Tick(Time.deltaTime);
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
                 if (keyboard.bKey.wasPressedThisFrame) hud.SetBuildListOpen(!hud.BuildListOpen);
-                if (keyboard.escapeKey.wasPressedThisFrame) { CancelPlacement(); hud.SetBuildListOpen(false); }
+                if (keyboard.escapeKey.wasPressedThisFrame) { CancelPlacement(); SelectCitizen(null); hud.SetBuildListOpen(false); }
                 if (selectedBuilding != null && keyboard.rKey.wasPressedThisFrame)
                 {
                     orientationDegrees = (orientationDegrees + 90) % 360;
@@ -237,6 +257,14 @@ namespace ColonyGame.Presentation
                     }
                 }
             }
+            if (selectedBuilding == null && mouse != null && camera != null && mouse.leftButton.wasPressedThisFrame)
+            {
+                var position = mouse.position.ReadValue();
+                if (!hud.IsPointerOverUI(position) && camera.pixelRect.Contains(position))
+                    SelectCitizen(citizenView?.Pick(camera.ScreenPointToRay(position)));
+            }
+            if (selectedCitizen != null && !selectedCitizen.Active) SelectCitizen(null);
+            citizenView?.Sync(selectedCitizen);
             if (previewRoot != null) previewRoot.SetActive(selectedBuilding != null && hasCursorTile);
             if (hasCursorTile)
             {
@@ -248,7 +276,7 @@ namespace ColonyGame.Presentation
         private void LateUpdate()
         {
             if (State != null && hud != null)
-                hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", wildlife?.Animals.Count(a => a.Active) ?? 0);
+                hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", wildlife?.Animals.Count(a => a.Active) ?? 0, citizens?.Citizens.Count(a => a.Active) ?? 0);
         }
         private static string PlacementStatus(BuildingPlacementValidity validity)
         {
@@ -283,6 +311,7 @@ namespace ColonyGame.Presentation
         {
             hud?.Dispose();
             wildlifeView?.Dispose();
+            citizenView?.Dispose();
             palette?.Dispose();
             if (tileMaterials != null) foreach (var material in tileMaterials) Destroy(material);
             if (groundMesh != null) Destroy(groundMesh);

@@ -38,6 +38,7 @@ namespace ColonyGame.World
         public bool IsCompleted { get; }
         public bool IsStartingBuilding { get; }
         public bool TerritoryInfluenceApplied { get; private set; }
+        public BuildingEntrance Entrance => BuildingEntrance.For(Definition,Origin,OrientationDegrees);
         public IEnumerable<TileCoordinate> OccupiedTiles => TilesInArea(0);
         public IEnumerable<TileCoordinate> InfluenceTiles => TilesInArea(InfluenceMargin);
 

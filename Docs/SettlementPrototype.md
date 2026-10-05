@@ -2,9 +2,9 @@
 
 ## Scope and setup
 
-This prototype provides a shared building-definition catalog, generic placement, quarter-turn rotation, contiguous Tile surfaces with subtle cell outlines, distinct schematic sites, and peaceful decorative wildlife, and a compact left-side UI Toolkit interface. Buildings still complete immediately and apply territory influence once. It introduces no costs, construction time, citizens, workers, production, upgrades, quests, demolition, roads, save/load, or final art. Section 13 of the authoritative design records the approved long-term wildlife rules.
+This prototype provides a shared building-definition catalog, generic placement, quarter-turn rotation, contiguous Tile surfaces with subtle cell outlines, distinct schematic sites, peaceful decorative wildlife, four adult citizens, and a compact left-side UI Toolkit interface. Buildings still complete immediately and apply territory influence once. It introduces no costs, construction time, assigned workers, production, upgrades, quests, demolition, roads, save/load, or final art. The authoritative design records approved wildlife rules and citizen identity, attributes, and outdoor movement policies.
 
-Use Unity **6000.6.4f1**. Exit Play Mode and let the changed scripts compile/import. Open the existing `Assets/Scenes/SettlementPrototype.unity` and enter Play Mode; **do not regenerate the scene or materials**. The existing serialized material references are sufficient. Let Unity generate metadata for `PrototypeHud.cs`, the new `Resources` folder, and `Resources/PrototypeTheme.tss`; retain them before a future commit. The theme imports the Unity default runtime theme and is loaded from Resources for standalone builds. Existing asset GUIDs are preserved.
+Use Unity **6000.6.4f1**. Exit Play Mode and let the changed scripts compile/import. Open the existing `Assets/Scenes/SettlementPrototype.unity` and enter Play Mode; **do not regenerate the scene or materials**. The existing serialized material references are sufficient. Let Unity generate metadata for the new Citizen.cs, CitizenNavigation.cs, CitizenSimulation.cs, CitizenView.cs, and CitizenTests.cs files, as well as `PrototypeHud.cs`, the new `Resources` folder, and `Resources/PrototypeTheme.tss`; retain them before a future commit. The theme imports the Unity default runtime theme and is loaded from Resources for standalone builds. Existing asset GUIDs are preserved.
 
 For a checkout without the prototype scene, use **ColonyGame > Create Settlement Prototype Scene** once. The existing non-overwriting command creates the scene and eight URP Unlit materials and adds the prototype after MainMenu in the build scene list. Future scenes automatically use this updated runtime view; the setup command needs no changes.
 
@@ -62,6 +62,69 @@ All paths below are relative to the repository root.
 
 `ApplyBuildingInfluence` accepts only a building belonging to that settlement, adds individual influenced Tiles, and marks influence applied even when no new Tiles were claimed. Repeated calls return zero without changing territory. The starting Town Hall is explicitly exempt. Preview, validation, camera motion, and presentation refresh do not apply influence. No resources are awarded.
 
+## Citizen foundation
+
+The prototype creates exactly four adults: Edwin and Owen (Male), Clara and Nora (Female). All start Unemployed. Seed 1147 reproducibly generates ages 18..45 inclusive and independent integer Strength, Dexterity, Intelligence, Endurance, and Charisma values 1..10. Attributes have no gameplay effects. Initial free positions are beside the four corners of Town Hall at (6.5,6.5), (12.5,6.5), (6.5,12.5), and (12.5,12.5); already occupied positions are replaced by deterministic free claimed positions.
+
+Citizen.cs contains identity/data and continuous X/Z positions; CitizenSimulation.cs owns population and movement. Prototype IDs are stable and unique within this settlement instance; relationships can later reference them. No automatic partners or households exist. Future profession/aging/save systems can extend the domain without tying identity to a visual GameObject.
+
+CitizenNavigation.cs provides lightweight cardinal BFS routes and nearest-destination search. SettlementIdleMovementPolicy requires actual claimed, unoccupied Tiles and conservative 0.28-Tile body clearance. All footprints, including Town Hall and Farm, are obstacles. Unclaimed holes and areas beyond irregular protrusions remain inaccessible. Normal interpolation between cardinal cell centers cannot cut occupied corners. Idle destinations are randomly chosen from reachable routes up to six steps away, so a blocked direct line produces a detour instead of permanent failure.
+
+Prototype Inspector tuning: Citizen Walk Speed defaults to 0.8 Tiles/second, Citizen Minimum Pause to 1 second, and Citizen Maximum Pause to 3 seconds. Routes persist across frames and visible positions move continuously. Citizens occasionally pause, then choose another reachable destination. A citizen with no reachable destination waits safely unless construction has disconnected its area; that case now triggers the recovery described below. Simulation accepts an ICitizenMovementPolicy: future tasks may supply different eligibility and obey the already approved Wilderness distance rules. No job or Wilderness travel behavior is implemented now.
+
+CitizenView.cs creates upright schematic figures: Male citizens have teal ordinary tunics and separate trouser legs; Female citizens have purple tunics with a wider hem and longer hair. These are base presentation cues, not profession clothing. Models turn toward movement. A runtime cyan annulus marks selection; no Gizmos, physics pushing, crowd avoidance, animation packages, or saved assets are added.
+
+Outside placement mode, left-click a figure to select it using presentation-only ray/bounds picking. Clicking empty world deselects. The compact left UI Toolkit panel shows name, sex, age, Unemployed, and all five attributes, with no assignment/inventory/needs/relationship controls. Opening Build clears citizen selection; selecting a building also clears it. Placement takes priority over citizen picking. The information panel participates in existing UI pointer blocking; transparent layout remains non-blocking. Escape also deselects.
+
+Citizens never block placement or change validation/influence. After successful placement, citizen reconciliation immediately refreshes navigation connectivity. A citizen covered by a new footprint or sealed into a disconnected pocket keeps its exact position and receives a continuous recovery route to connected free claimed ground. A new obstacle invalidating an otherwise ordinary path cancels that path toward the current cell center before choosing another route. See the unified building access/recovery foundation below.
+
+Only an impossible/broken recovery uses emergency relocation to a valid claimed unoccupied cell with a clear development warning. If none exists, warning-bearing dormancy preserves identity; later reconciliation may reactivate the citizen. No resource awards occur. Territory expansion makes new claimed free cells eligible without changing policy. Citizens and wildlife do not interact; existing wildlife code is unchanged.
+
+New domain tests in CitizenTests.cs cover population/sex/unemployment/IDs, deterministic ages and attributes including range endpoints, valid starting positions and previous buildings, Town Hall detours, irregular claims, body clearance, continuous wandering/pauses, expansion availability, independent continuous footprint recovery, unsafe-route cancellation, recovery restrictions, continuous fractional-position recovery, emergency relocation/dormancy, isolated cells, policy injection, and invalid input.
+
+Citizen Play Mode acceptance:
+1. Let Unity import the five new files and generate their .meta files. Open the existing SettlementPrototype scene; no regeneration is required.
+2. Verify four citizens, two teal Male figures and two purple Female figures, with no spawn inside footprints. Check the HUD count.
+3. Observe walking and pauses for at least a minute. Check detours around Town Hall and several placed footprints; normal movement must never enter Wilderness.
+4. Click each figure. Verify the cyan ring and all required information. Click empty ground to deselect. Click panel content/padding and confirm no selection or placement underneath.
+5. Open Build with B and its button; citizen information must disappear. Select a building; clicks on citizens now perform placement rather than selection. Retest UI scrolling and camera input gating.
+6. Catch a citizen with a valid building footprint. Placement must succeed with no position jump; watch the citizen walk out to free claimed ground, then resume wandering. At initial citizen position (6.5,6.5), a House at origin (4,4) is a valid example if placed before the citizen moves away.
+7. Expand at the boundary and confirm citizens can subsequently use new free claims while avoiding Wilderness holes. Retest wildlife wandering and visible evacuation.
+8. Restart Play Mode; names, ages, attributes, IDs, and initial positions are reproducible. Check Console for unexpected errors or emergency warnings; run all 72 EditMode tests.
+
+Citizen visuals, selection, information, ordinary wandering, and general navigation were manually verified by the user. The new entrance and trapped-pocket recovery behavior still needs manual Unity verification. No households, families, children, aging, immigration, professions/assignments, Builder behavior, needs, inventories, resources, combat, or citizen-triggered wildlife fleeing are implemented.
+
+## Building access and trapped-citizen recovery
+
+BuildingEntrance.cs supplies deterministic domain data for every type, including Town Hall: a footprint-edge Tile, cardinal outward facing, and adjacent exterior access Tile. The prototype convention selects the lower central Tile of the canonical south edge; this is a replaceable access convention, not a final architectural requirement. BuildingState.Entrance derives the data from definition, origin, and rotation. Quarter-turns rotate both the Tile and facing consistently with the site's Unity Y rotation. ExteriorTile is FootprintTile + Facing.
+
+The exterior access Tile is separate from the reserved footprint. IsExteriorAccessible checks current claimed membership and non-occupancy. Access is advisory: blocked entrances never alter placement validation, footprints, influence, or unlocks. Normal citizen navigation still rejects every occupied Tile, including doorway and perimeter Tiles. A gate is a future transition point, not a public path across the site.
+
+SchematicBuildingView derives an opening from actual domain entrance data, splits only the relevant perimeter segment, and adds two short posts and a blue threshold entirely inside/on the footprint boundary. Existing building geometry is unchanged. Gate geometry rotates with the site; no scene regeneration or saved asset changes are required.
+
+SettlementIdleMovementPolicy refreshes actual cardinal walkable components after placement. The largest component is the ordinary connected settlement area; equal-size ties prefer the Town Hall exterior access component, then stable Z/X ordering. The anchor is Town Hall access when it belongs to that component, otherwise its deterministic first Tile. This avoids using a sealed Town Hall courtyard as the recovery destination for the rest of the settlement. No original rectangle, Town Hall radius, or bounding-box approximation defines connectivity. Ordinary ticks use this cached connectivity.
+
+CitizenSimulation uses one recovery system for direct footprint overlap and disconnected pockets, even when a pocket still contains multiple ordinary walkable Tiles. CitizenNavigation extends its existing cardinal search with a small weighted search whose costs are ordered as:
+1. Fewest occupied Tiles crossed.
+2. Short travel plus a bounded soft preference for crossing near the designated entrance.
+3. Shortest route to break remaining ties.
+
+Thus any entirely ordinary route wins over occupied traversal, regardless of its length. Door preference never adds extra occupied Tiles; minimal routes may cross elsewhere when necessary. The destination must be normally walkable in the selected connected component. Recovery traverses claimed Tiles only and explicitly whitelists the selected route (plus initial body overlap), never granting arbitrary building access. Citizens move continuously at their existing walk speed, with no wandering pauses during recovery. A later placement replans from the current fractional position without a jump.
+
+Recovery ends immediately when the body is clear on connected settlement ground. Route permissions are discarded; normal building blocking and idle wandering resume. Merely reaching another disconnected free pocket does not end recovery prematurely. Emergency relocation is reserved for routing failure/impossible states, preserves identity/state, selects valid connected claimed ground, and emits a clear development warning. If no safe Tile exists, warning-bearing dormancy remains. Ordinary recoverable hut traps produce no relocation warnings.
+
+Citizen.InsideBuildingId is a reserved nullable location link and remains null. A future explicit entry system can path to ExteriorTile, transition through the entrance using the building's stable ID, hide the outdoor view while logically inside, and later exit at access. No EnterBuilding/ExitBuilding behavior, interiors, home assignment, night schedules, or sleeping is implemented. Task-specific movement policy remains separate from entrances and recovery; wildlife is unchanged.
+
+BuildingAccessRecoveryTests.cs adds fourteen focused tests. All previous 58 tests are retained; the surrounded-footprint test now expects walking rather than relocation, and the recovery permission test checks the route whitelist. Coverage includes all entrances/access Tiles, rotation, blocked-access placement, ordinary footprint blocking, the sealed Builder's Hut pocket, narrow passages, minimal crossing, ordinary detours, entrance preference, irregular claims, blocked Town Hall access, additional construction, and warning-bearing broken-state fallback.
+
+Manual Unity checks:
+1. Let Unity import BuildingEntrance.cs and BuildingAccessRecoveryTests.cs and generate their .meta files. Keep the existing scene and materials.
+2. Inspect every site's gate. Rotate Farm through all four orientations and confirm the opening rotates with the exact footprint.
+3. Watch ordinary citizens walk around footprints and fences; no doorway/perimeter Tile becomes normally walkable.
+4. Surround a citizen with Builder's Huts, leaving a narrow passage first, then sealing it. A passage should preserve ordinary navigation; sealing should start continuous recovery without teleporting or rejecting placement.
+5. Watch the citizen leave the pocket, cross only the necessary obstruction, and resume ordinary movement on reaching connected space. Repeat with direct overlap and another placement during recovery.
+6. Check that normal citizens never enter Wilderness, selection/info UI and Build input work, and wildlife wandering/evacuation remain intact. Check Console for unexpected errors or emergency relocation warnings.
+7. Run all 72 EditMode tests. New entrance/recovery visuals remain subject to this manual verification.
 ## Controls, selection, and rotation
 
 Focus Game View before using keyboard/mouse controls.
@@ -143,7 +206,7 @@ Walking remains 0.65 Tiles/second. Wildlife Run Speed Multiplier in the view Ins
 
 Teleportation is retained only as emergency recovery if no evacuation route exists despite an available safe destination. It emits a clear development warning through the Unity view. If no valid Wilderness exists, the warning-bearing emergency fallback is dormancy with identity retained, followed by recovery on later reconciliation. Neither fallback kills animals or awards resources. Searches run during expansion/recovery, not repeatedly each frame for dormant animals.
 
-RequestFlee accepts an abstract threat only between walking segments. It selects a valid neighbor increasing threat distance, preferring greater depth from the nearest actual claimed Tile square. This prototype ranking does not define the citizen distance metric. No citizen detection or automatic trigger exists. Habitat eligibility is a separate policy: future Wolves/Bears may use settlement-capable policies, rather than inheriting peaceful restrictions. No predators, livestock, reproduction, hunting, resources, combat, or citizen systems are implemented.
+RequestFlee accepts an abstract threat only between walking segments. It selects a valid neighbor increasing threat distance, preferring greater depth from the nearest actual claimed Tile square. This prototype ranking does not define the citizen distance metric. No citizen detection or automatic trigger exists. Habitat eligibility is a separate policy: future Wolves/Bears may use settlement-capable policies, rather than inheriting peaceful restrictions. No predators, livestock, reproduction, hunting, resources, combat, or citizen-triggered wildlife reactions are implemented.
 
 Additional Play Mode checks:
 - Import the shader/scripts/tests and let Unity generate their .meta files; retain these before committing. Check Console and ensure ground is not pink. Do not regenerate scenes/materials.
@@ -152,15 +215,15 @@ Additional Play Mode checks:
 - Expand toward an animal or destination. Confirm no position jump at placement, immediate faster running through the new boundary, a short deeper Wilderness run, then ordinary wandering. Repeat for several animals and a second expansion while an animal is still evacuating. Confirm no emergency warnings under ordinary conditions and no rewards.
 - Sweep zoom with Gizmos on/off; check subtle outlines and distant fading. Retest UI scrolling/passthrough, placement snapping, and camera controls.
 
-The preceding rendering/wandering milestone was manually verified by the user. The new evacuation behavior still requires normal Unity Play Mode verification; source compilation does not establish visual correctness.
+The preceding building/wildlife milestone, including evacuation, was manually verified by the user. Citizen rendering/input and recovery require new Unity Play Mode verification; source compilation does not establish visual correctness.
 ## Validation and manual Unity steps
 
-Source-side results: **39 NUnit tests passed, 0 failed**, using Unity's bundled Mono compiler/runtime and the installed NUnit library outside the Editor. All original tests remain covered through the generic API. Tests verify all 14 catalog definitions, exact names/footprints/unlock levels/placeability, 3/7/11/13 cumulative options, lower-level placement rejection, every player type through the generic path, actual rotated occupancy/validation/influence, starting exemption, idempotence, irregular membership, House chaining, and invalid type/angle/coordinate rejection. Domain and Unity presentation/Editor source compilation against installed Unity 6000.6.4f1/URP/Input System assemblies passed.
+Source-side results: **72 NUnit tests passed, 0 failed**, using Unity's bundled Mono compiler/runtime and the installed NUnit library outside the Editor. All original tests remain covered through the generic API. Tests verify all 14 catalog definitions, exact names/footprints/unlock levels/placeability, 3/7/11/13 cumulative options, lower-level placement rejection, every player type through the generic path, actual rotated occupancy/validation/influence, starting exemption, idempotence, irregular membership, House chaining, and invalid type/angle/coordinate rejection. Domain and Unity presentation/Editor source compilation against installed Unity 6000.6.4f1/URP/Input System assemblies passed.
 
 The known licensing/sandbox limitation means source-side validation does not verify Unity import, menu input, rendered previews/labels, Play Mode, or player builds. Licensing/security configuration was not changed or repeatedly retried. Complete these checks in the normal Editor:
 
 1. Exit Play Mode, allow imports/compilation, and retain new source/test `.meta` files. Do not recreate the existing scene/materials.
-2. Use **Window > General > Test Runner > EditMode** and run `SettlementStateTests`, `HousePlacementTests`, and `BuildingCatalogTests` plus PeacefulWildlifeTests (39 tests).
+2. Use **Window > General > Test Runner > EditMode** and run `SettlementStateTests`, `HousePlacementTests`, and `BuildingCatalogTests` plus PeacefulWildlifeTests, CitizenTests, and BuildingAccessRecoveryTests (72 tests).
 3. Open SettlementPrototype and enter Play Mode. Confirm only the compact upper-left HUD is visible initially; press B or Build to open the left list. Confirm **400 claimed Tiles**, **1 building**, **25 Town Hall occupied Tiles**, and **TH 4 (test override)**. Verify all 13 player types appear, with accurate footprints/unlock levels, and Town Hall/standalone Place of Power do not appear.
 4. Select Farm. Confirm the list collapses automatically and only compact placement information remains on the left. Clicking the selection entry must not place a building behind the list. Press R and verify 3 x 4 -> 4 x 3 -> 3 x 4, oriented cells, selection label, and complete schematic site orientation after placement. Verify all four orientation states and a square building's unchanged shape.
 5. Try Farm origin `(16, 17)`: 0 degrees must be red/outside; 90 degrees must be green. In a fresh session, Farm at `(4, 7)` is valid at 0 degrees and invalid/occupied at 90 degrees because it would overlap Town Hall. Invalid clicks must not change counts.
@@ -174,6 +237,6 @@ Lower Town Hall filtering is tested in the domain; the runtime prototype intenti
 
 ## Prototype limitations
 
-Every building produces a distinct schematic site with a label, without its future functionality. No Warehouse logistics, Farm production, Tavern behavior, livestock, fishing, detection, combat, research, magic, or Place of Power mechanics are implemented. There are no resources, costs, timers, workers, residents, upgrades, demolition, roads, saving, physical player, or final UI/art. The prototype resets when Play Mode ends.
+Every building produces a distinct schematic site with a label, without its future functionality. No Warehouse logistics, Farm production, Tavern behavior, livestock, fishing, detection, combat, research, magic, or Place of Power mechanics are implemented. There are no resources, costs, timers, assigned workers, households, upgrades, demolition, roads, saving, physical player, or final UI/art. The prototype resets when Play Mode ends.
 
 The build/HUD interface is runtime UI Toolkit and remains separate from MainMenu. Building-name labels remain IMGUI. Building labels can overlap each other in crowded settlements; near a screen edge they may clip. Ground and decoration rebuild on successful placement; large chained settlements may need later rendering optimization. There is no streaming or modding pipeline. Final Town Hall starting level remains undecided; Level 4 here is solely a testing override.

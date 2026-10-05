@@ -29,7 +29,9 @@ This document does not authorize gameplay implementation. It does not change the
 
 - The world is conceptually divided into claimed **Settlement Territory** and surrounding **Wilderness**.
 - The player may physically move only inside claimed Settlement Territory.
-- Citizens may enter nearby Wilderness but must never travel farther than **10 Tiles beyond the current settlement boundary**.
+- Idle citizens wander only inside claimed Settlement Territory. Specific future tasks/professions may authorize Wilderness travel; ordinary idle wandering does not grant that permission.
+- Citizens on authorized Wilderness trips must never travel farther than **10 Tiles beyond the current settlement boundary**.
+- Building footprints are obstacles for normal outdoor citizen movement, including their perimeter Tiles. Buildings have defined entrances/access points for citizen interaction. Citizens approach an adjacent exterior access Tile and use an explicit entrance transition rather than treating the footprint as walkable outdoor space. The exterior access Tile is separate from the reserved footprint and normally must be claimed and unoccupied. Actual building entry/exit and interiors remain future systems.
 - A building may be placed only when its **entire reserved footprint** is already inside existing claimed Settlement Territory.
 - Placing a building partly or fully outside the territory to claim new land is prohibited.
 
@@ -243,13 +245,14 @@ Citizens are persistent individuals, not disposable generic units. They include 
 
 Assigning or changing profession must preserve that same person and underlying appearance. Profession presentation changes clothing, tools, and equipment; it must not replace the citizen with a different person or completely different base character. This remains valid when full 3D models replace prototype visuals.
 
+**Planned future building access**: citizens can become logically inside a building through its designated entrance and later exit through the entrance/access area. Houses may use this for citizens going home and remaining inside at night. This does not require outdoor pathfinding across the building footprint. Interiors, home assignment, night schedules, day/night behavior, and sleeping are not implemented or otherwise specified here.
 ## 15. Citizen characteristics
 
 **Planned future model capabilities**: name/identity, sex, age/life stage, family relationships, profession, skills/aptitudes, individual characteristics/statistics, current needs/state, work assignment, and home assignment.
 
-These are future concepts the model should be capable of supporting, not a finalized schema or stat list.
+Citizens have persistent identifiers, first names, sex, age, profession state, and base attributes. Approved base attributes are **Strength, Dexterity, Intelligence, Endurance, and Charisma**, represented as integers from **1 through 10**. These attributes currently have no gameplay effects; efficiency, suitability, combat, social, leveling, and experience formulas remain undefined. Future relationships can reference persistent citizen identifiers without replacing those identities.
 
-**TBD**: exact characteristics, skills, needs, happiness, aging rates, skill effects, and profession suitability rules. Do not invent detailed statistics or formulas.
+**TBD**: additional characteristics, skills, needs, happiness, aging rates, skill/attribute effects, and profession suitability rules. Do not invent additional statistics or formulas.
 
 ## 16. Families and population
 

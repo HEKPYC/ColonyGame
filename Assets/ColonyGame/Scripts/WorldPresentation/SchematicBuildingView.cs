@@ -38,6 +38,40 @@ namespace ColonyGame.Presentation
     public static class SchematicBuildingView
     {
         private static readonly Color Wood = new Color(.52f,.32f,.16f), Stone = new Color(.4f,.47f,.52f), Cream = new Color(.82f,.77f,.58f), Blue = new Color(.18f,.55f,.78f), Green = new Color(.32f,.55f,.15f), Purple = new Color(.59f,.3f,.8f);
+        private static void CreateEntrancePerimeter(BuildingState building,Transform site,PrototypePalette palette)
+        {
+            float w=building.Definition.BaseWidth,d=building.Definition.BaseDepth;
+            var entrance=building.Entrance;
+            var facing=new Vector3(entrance.Facing.X,0,entrance.Facing.Z);
+            var boundary=new Vector3(entrance.FootprintTile.X+.5f,0,entrance.FootprintTile.Z+.5f)+facing*.5f;
+            // Derive the opening from domain entrance data, then convert into rotated site space.
+            var inverse=Quaternion.Inverse(site.localRotation);
+            var gate=inverse*(boundary-site.localPosition);
+            var normal=inverse*facing;
+            void Edge(string name,bool vertical,float fixedPosition,float start,float end,bool opening,float gateAlong)
+            {
+                void Segment(float from,float to)
+                {
+                    if(to-from<.001f) return;
+                    var position=vertical?new Vector3(fixedPosition,.06f,(from+to)*.5f):new Vector3((from+to)*.5f,.06f,fixedPosition);
+                    var scale=vertical?new Vector3(.02f*w,.12f,to-from):new Vector3(to-from,.12f,.02f*d);
+                    PrototypePalette.Shape(site,name,PrimitiveType.Cube,position,scale,palette.Get(Cream));
+                }
+                if(opening) { Segment(start,gateAlong-.4f);Segment(gateAlong+.4f,end); }
+                else Segment(start,end);
+            }
+            Edge("West site edge",true,.01f*w,.01f*d,.99f*d,normal.x<-.5f,gate.z);
+            Edge("East site edge",true,.99f*w,.01f*d,.99f*d,normal.x>.5f,gate.z);
+            Edge("South site edge",false,.01f*d,.01f*w,.99f*w,normal.z<-.5f,gate.x);
+            Edge("North site edge",false,.99f*d,.01f*w,.99f*w,normal.z>.5f,gate.x);
+            var tangent=new Vector3(-normal.z,0,normal.x);
+            var inset=gate-normal*.07f;
+            foreach(float side in new[]{-.41f,.41f})
+                PrototypePalette.Shape(site,"Entrance gate post",PrimitiveType.Cube,inset+tangent*side+Vector3.up*.22f,
+                    new Vector3(.07f,.44f,.07f),palette.Get(Cream));
+            var thresholdScale=Mathf.Abs(normal.z)>.5f?new Vector3(.72f,.04f,.12f):new Vector3(.12f,.04f,.72f);
+            PrototypePalette.Shape(site,"Entrance threshold",PrimitiveType.Cube,inset+Vector3.up*.025f,thresholdScale,palette.Get(Blue));
+        }
         public static void Create(BuildingState building, Transform parent, PrototypePalette palette)
         {
             var site = new GameObject(building.Definition.DisplayName + " Site");
@@ -49,10 +83,7 @@ namespace ColonyGame.Presentation
             // All canonical site geometry is inset within [0,w] x [0,d]; transform rotates the entire site.
             Action<string,float,float,float,float,float,Color> box = (name,x,z,sx,sz,height,color) =>
                 PrototypePalette.Shape(site.transform,name,PrimitiveType.Cube,new Vector3(x*w,height*.5f,z*d),new Vector3(sx*w,height,sz*d),palette.Get(color));
-            box("West site edge",.01f,.5f,.02f,.98f,.12f,Cream);
-            box("East site edge",.99f,.5f,.02f,.98f,.12f,Cream);
-            box("South site edge",.5f,.01f,.98f,.02f,.12f,Cream);
-            box("North site edge",.5f,.99f,.98f,.02f,.12f,Cream);
+            CreateEntrancePerimeter(building,site.transform,palette);
             Action<float,float,float,float,Color> hut = (x,z,sx,sz,color) =>
             {
                 box("Walls",x,z,sx,sz,.6f,color);
