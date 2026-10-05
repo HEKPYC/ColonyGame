@@ -4,7 +4,8 @@ using System.Collections.Generic;
 namespace ColonyGame.World
 {
     public enum CitizenSex { Male, Female }
-    public enum CitizenProfession { Unemployed }
+    public enum CitizenProfession { Unemployed, Builder }
+    public enum CitizenTask { Idle, Wandering, GatheringWoodOutbound, GatheringWood, ReturningWood, Recovery }
     public enum CitizenMovement { Idle, Walking, Recovering }
 
     public readonly struct CitizenPosition
@@ -44,7 +45,11 @@ namespace ColonyGame.World
         public string FirstName { get; }
         public CitizenSex Sex { get; }
         public int Age { get; }
-        public CitizenProfession Profession { get; } = CitizenProfession.Unemployed;
+        public CitizenProfession Profession { get; internal set; } = CitizenProfession.Unemployed;
+        public string WorkplaceBuildingId { get; internal set; }
+        internal CitizenTask GatheringTask = CitizenTask.Idle;
+        public CitizenTask Task => Movement == CitizenMovement.Recovering ? CitizenTask.Recovery :
+            GatheringTask != CitizenTask.Idle ? GatheringTask : Movement == CitizenMovement.Walking ? CitizenTask.Wandering : CitizenTask.Idle;
         public CitizenAttributes Attributes { get; }
         public CitizenPosition Position { get; internal set; }
         public CitizenPosition Destination { get; internal set; }

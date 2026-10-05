@@ -22,7 +22,7 @@ namespace ColonyGame.World
 
     public enum BuildingPlacementValidity
     {
-        Valid, OutsideTerritory, Occupied, Locked, NotPlayerPlaceable, UnknownType, InvalidOrientation
+        Valid, OutsideTerritory, Occupied, Locked, NotPlayerPlaceable, UnknownType, InvalidOrientation, InsufficientResources, ConstructionDeferred
     }
 
     public sealed class BuildingState
@@ -35,7 +35,11 @@ namespace ColonyGame.World
         public int Width { get; }
         public int Depth { get; }
         public int OrientationDegrees { get; }
-        public bool IsCompleted { get; }
+        public ConstructionStage ConstructionStage { get; internal set; }
+        public bool IsCompleted => ConstructionStage == ConstructionStage.Completed;
+        public double ConstructionWork { get; internal set; }
+        public double RequiredConstructionWork { get; internal set; }
+        public double ConstructionProgress => IsCompleted ? 1 : RequiredConstructionWork <= 0 ? 0 : ConstructionWork / RequiredConstructionWork;
         public bool IsStartingBuilding { get; }
         public bool TerritoryInfluenceApplied { get; private set; }
         public BuildingEntrance Entrance => BuildingEntrance.For(Definition,Origin,OrientationDegrees);
@@ -58,7 +62,7 @@ namespace ColonyGame.World
             Width = footprint.Width;
             Depth = footprint.Depth;
             OrientationDegrees = orientationDegrees;
-            IsCompleted = true;
+            ConstructionStage = ConstructionStage.Completed;
             IsStartingBuilding = starting;
         }
         internal void MarkInfluenceApplied() { TerritoryInfluenceApplied = true; }
@@ -82,6 +86,13 @@ namespace ColonyGame.World
             AddBuilding(townHall);
         }
         public bool IsOccupied(TileCoordinate tile) => occupied.Contains(tile);
+        internal BuildingState AddConstructionSite(BuildingType type, TileCoordinate origin, int orientation, double requiredWork)
+        {
+            var site = new BuildingState(Guid.NewGuid().ToString("N"), BuildingCatalog.Get(type), origin, orientation)
+            { ConstructionStage = ConstructionStage.UnderConstruction, RequiredConstructionWork = requiredWork };
+            AddBuilding(site);
+            return site;
+        }
 
         public BuildingPlacementValidity ValidateBuildingPlacement(BuildingType type, TileCoordinate origin, int orientationDegrees = 0)
         {

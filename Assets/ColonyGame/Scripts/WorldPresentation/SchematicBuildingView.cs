@@ -90,6 +90,14 @@ namespace ColonyGame.Presentation
                 var roof = PrototypePalette.Shape(site.transform,"Roof",PrimitiveType.Cube,new Vector3(x*w,.67f,z*d),new Vector3(sx*w,.14f,sz*d),palette.Get(Wood));
                 // The roof remains within the same normalized building volume.
             };
+            if(!building.IsCompleted)
+            {
+                box("Construction foundation",.5f,.5f,.82f,.82f,.045f,Stone);
+                foreach(float x in new[]{.2f,.8f})
+                    foreach(float z in new[]{.2f,.8f}) box("Unfinished frame post",x,z,.045f,.045f,.75f,Wood);
+                box("Unfinished frame beam",.5f,.8f,.64f,.05f,.8f,new Color(.72f,.51f,.22f));
+                return;
+            }
             switch (building.Type)
             {
                 case BuildingType.TownHall:

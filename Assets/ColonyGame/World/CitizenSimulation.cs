@@ -28,6 +28,7 @@ namespace ColonyGame.World
         private readonly Random random;
         private readonly CitizenMovementSettings settings;
         public IReadOnlyList<Citizen> Citizens { get; }
+        public AmbientWoodGathering Gathering { get; set; }
         public event Action<string> DevelopmentWarning;
         public CitizenSimulation(ICitizenMovementPolicy policy,IEnumerable<Citizen> citizens,CitizenMovementSettings settings=null,int seed=1147)
         {
@@ -112,6 +113,7 @@ namespace ColonyGame.World
             foreach(var citizen in Citizens)
             {
                 if(!citizen.Active&&!recoverDormant) continue;
+                if(Gathering?.Reconcile(citizen)==true) continue;
                 if(!Connected(citizen.Position))
                 {
                     if(citizen.Movement==CitizenMovement.Recovering&&!recoverDormant&&Connected(citizen.Destination)&&
@@ -144,6 +146,7 @@ namespace ColonyGame.World
             foreach(var citizen in Citizens)
             {
                 if(!citizen.Active) continue;
+                if(Gathering?.TickCitizen(citizen,seconds,settings.Speed)==true) continue;
                 if(citizen.Movement==CitizenMovement.Idle)
                 {
                     citizen.Pause-=seconds;

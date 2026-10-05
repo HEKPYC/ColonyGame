@@ -22,6 +22,8 @@ namespace ColonyGame.Presentation
         [SerializeField, Min(.1f)] private float citizenWalkSpeed = .8f;
         [SerializeField, Min(0)] private float citizenMinimumPause = 1f;
         [SerializeField, Min(0)] private float citizenMaximumPause = 3f;
+        private readonly BootstrapSettings bootstrapSettings = new BootstrapSettings();
+        private SettlementBootstrap bootstrap;
         private CitizenSimulation citizens;
         private CitizenView citizenView;
         private Citizen selectedCitizen;
@@ -49,7 +51,7 @@ namespace ColonyGame.Presentation
         {
             State = SettlementState.CreatePrototype();
             hud = new PrototypeHud(transform, State.AvailableBuildings, SelectBuilding, CancelPlacement);
-            hud.BuildListOpened += () => SelectCitizen(null);
+            hud.BuildListOpened += () => { SelectCitizen(null); hud.ShowBuilding(null); };
             palette = new PrototypePalette(hallWalls);
             var shader = Resources.Load<Shader>("PrototypeTileCells");
             if (shader == null) throw new MissingReferenceException("PrototypeTileCells shader must be imported before Play Mode.");
@@ -66,6 +68,9 @@ namespace ColonyGame.Presentation
             wildlifeView = new PeacefulWildlifeView(transform, wildlife, palette);
             citizens = CitizenSimulation.CreatePrototype(State, new CitizenMovementSettings(citizenWalkSpeed, citizenMinimumPause, citizenMaximumPause));
             citizenView = new CitizenView(transform, citizens, palette);
+            bootstrap = new SettlementBootstrap(State,citizens,bootstrapSettings);
+            citizens.Gathering = new AmbientWoodGathering(bootstrap);
+            hud.BindBootstrap(bootstrap,SelectCitizen);
             Debug.Log("Building prototype: temporary Town Hall Level 4; B toggles build menu; R rotates; left click places; Escape cancels.", this);
         }
         private void RefreshPresentation()
@@ -76,10 +81,10 @@ namespace ColonyGame.Presentation
             if (groundMesh != null) Destroy(groundMesh);
             generatedRoot = new GameObject("Generated Settlement Presentation");
             generatedRoot.transform.SetParent(transform, false);
-            minX = State.Territory.ClaimedTiles.Min(t => t.X) - 6;
-            minZ = State.Territory.ClaimedTiles.Min(t => t.Z) - 6;
-            maxX = State.Territory.ClaimedTiles.Max(t => t.X) + 7;
-            maxZ = State.Territory.ClaimedTiles.Max(t => t.Z) + 7;
+            minX = State.Territory.ClaimedTiles.Min(t => t.X) - bootstrapSettings.WildernessDepth - 1;
+            minZ = State.Territory.ClaimedTiles.Min(t => t.Z) - bootstrapSettings.WildernessDepth - 1;
+            maxX = State.Territory.ClaimedTiles.Max(t => t.X) + bootstrapSettings.WildernessDepth + 2;
+            maxZ = State.Territory.ClaimedTiles.Max(t => t.Z) + bootstrapSettings.WildernessDepth + 2;
             var camera = Camera.main;
             if (camera != null && camera.TryGetComponent<PrototypeCamera>(out var navigation))
             {
@@ -202,6 +207,7 @@ namespace ColonyGame.Presentation
         private void SelectBuilding(BuildingDefinition definition)
         {
             SelectCitizen(null);
+            hud.ShowBuilding(null);
             selectedBuilding = definition;
             orientationDegrees = 0;
             RebuildPreview();
@@ -222,22 +228,33 @@ namespace ColonyGame.Presentation
         private void Update()
         {
             if (State == null || hud == null) return;
-            wildlifeView?.Tick(Time.deltaTime);
             citizens?.Tick(Time.deltaTime);
+            wildlife?.ReactToCitizens(citizens.Citizens,bootstrap.Settings.WildlifeDetectionRadius);
+            wildlifeView?.Tick(Time.deltaTime);
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
                 if (keyboard.bKey.wasPressedThisFrame) hud.SetBuildListOpen(!hud.BuildListOpen);
-                if (keyboard.escapeKey.wasPressedThisFrame) { CancelPlacement(); SelectCitizen(null); hud.SetBuildListOpen(false); }
+                if (keyboard.escapeKey.wasPressedThisFrame) { CancelPlacement(); SelectCitizen(null); hud.ShowBuilding(null); hud.SetBuildListOpen(false); }
                 if (selectedBuilding != null && keyboard.rKey.wasPressedThisFrame)
                 {
                     orientationDegrees = (orientationDegrees + 90) % 360;
                     RebuildPreview();
                 }
             }
+            if(keyboard!=null && keyboard.eKey.isPressed && selectedBuilding==null && !hud.BuildListOpen &&
+                hud.ManagedBuilding!=null && !hud.ManagedBuilding.IsCompleted)
+            {
+                if(bootstrap.ContributeWork(hud.ManagedBuilding,ConstructionActor.Player,Time.deltaTime))
+                {
+                    RefreshPresentation();
+                    hud.ShowBuilding(hud.ManagedBuilding);
+                }
+            }
             var mouse = Mouse.current;
             var camera = Camera.main;
             hasCursorTile = false;
+            bool wasPlacing = selectedBuilding != null;
             if (selectedBuilding != null && mouse != null && camera != null)
             {
                 var position = mouse.position.ReadValue();
@@ -248,23 +265,39 @@ namespace ColonyGame.Presentation
                     var local = transform.InverseTransformPoint(ray.GetPoint(distance));
                     cursorTile = new TileCoordinate(Mathf.FloorToInt(local.x), Mathf.FloorToInt(local.z));
                     hasCursorTile = true;
-                    placementValidity = State.ValidateBuildingPlacement(selectedBuilding.Type, cursorTile, orientationDegrees);
+                    placementValidity = ValidateBootstrapPlacement();
                     if (mouse.leftButton.wasPressedThisFrame && placementValidity == BuildingPlacementValidity.Valid &&
-                        State.TryPlacePrototypeBuilding(selectedBuilding.Type, cursorTile, orientationDegrees, out _))
+                        bootstrap.TryStartFirstHut(cursorTile, orientationDegrees, out var newSite))
                     {
                         RefreshPresentation();
-                        placementValidity = State.ValidateBuildingPlacement(selectedBuilding.Type, cursorTile, orientationDegrees);
+                        CancelPlacement(); hud.ShowBuilding(newSite);
                     }
                 }
             }
-            if (selectedBuilding == null && mouse != null && camera != null && mouse.leftButton.wasPressedThisFrame)
+            if (!wasPlacing && mouse != null && camera != null && mouse.leftButton.wasPressedThisFrame)
             {
                 var position = mouse.position.ReadValue();
                 if (!hud.IsPointerOverUI(position) && camera.pixelRect.Contains(position))
-                    SelectCitizen(citizenView?.Pick(camera.ScreenPointToRay(position)));
+                {
+                    var ray=camera.ScreenPointToRay(position);
+                    var citizen=citizenView?.Pick(ray);
+                    SelectCitizen(citizen);
+                    hud.ShowBuilding(null);
+                    if(citizen==null)
+                    {
+                        var plane=new Plane(transform.up,transform.position);
+                        if(plane.Raycast(ray,out float distance))
+                        {
+                            var local=transform.InverseTransformPoint(ray.GetPoint(distance));
+                            var tile=new TileCoordinate(Mathf.FloorToInt(local.x),Mathf.FloorToInt(local.z));
+                            hud.ShowBuilding(State.Buildings.FirstOrDefault(b=>b.OccupiedTiles.Contains(tile)));
+                        }
+                    }
+                }
             }
             if (selectedCitizen != null && !selectedCitizen.Active) SelectCitizen(null);
             citizenView?.Sync(selectedCitizen);
+            hud.ShowCitizen(selectedCitizen);
             if (previewRoot != null) previewRoot.SetActive(selectedBuilding != null && hasCursorTile);
             if (hasCursorTile)
             {
@@ -278,11 +311,21 @@ namespace ColonyGame.Presentation
             if (State != null && hud != null)
                 hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", wildlife?.Animals.Count(a => a.Active) ?? 0, citizens?.Citizens.Count(a => a.Active) ?? 0);
         }
-        private static string PlacementStatus(BuildingPlacementValidity validity)
+        private BuildingPlacementValidity ValidateBootstrapPlacement()
+        {
+            var geometric=State.ValidateBuildingPlacement(selectedBuilding.Type,cursorTile,orientationDegrees);
+            if(geometric!=BuildingPlacementValidity.Valid) return geometric;
+            if(selectedBuilding.Type!=BuildingType.BuildersHut || State.Buildings.Any(b=>b.Type==BuildingType.BuildersHut))
+                return BuildingPlacementValidity.ConstructionDeferred;
+            return bootstrap.CanStartFirstHut?BuildingPlacementValidity.Valid:BuildingPlacementValidity.InsufficientResources;
+        }
+        private string PlacementStatus(BuildingPlacementValidity validity)
         {
             switch (validity)
             {
-                case BuildingPlacementValidity.Valid: return "VALID";
+                case BuildingPlacementValidity.Valid: return $"VALID: first Hut costs {bootstrap.Settings.HutWoodCost} Wood";
+                case BuildingPlacementValidity.InsufficientResources: return $"Need {bootstrap.Settings.HutWoodCost} Wood in Town Hall storage";
+                case BuildingPlacementValidity.ConstructionDeferred: return "Preview only: subsequent construction/costs deferred";
                 case BuildingPlacementValidity.OutsideTerritory: return "INVALID: outside territory";
                 case BuildingPlacementValidity.Occupied: return "INVALID: occupied Tiles";
                 case BuildingPlacementValidity.Locked: return "INVALID: locked by Town Hall level";

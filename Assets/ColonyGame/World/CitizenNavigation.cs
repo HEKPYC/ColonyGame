@@ -85,7 +85,7 @@ namespace ColonyGame.World
     public static class CitizenNavigation
     {
         private static readonly TileCoordinate[] steps={new TileCoordinate(1,0),new TileCoordinate(-1,0),new TileCoordinate(0,1),new TileCoordinate(0,-1)};
-        private static IEnumerable<TileCoordinate> Neighbors(TileCoordinate t)
+        internal static IEnumerable<TileCoordinate> Neighbors(TileCoordinate t)
         {
             foreach(var step in steps)
             {

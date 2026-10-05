@@ -13,6 +13,7 @@ namespace ColonyGame.Presentation
         private readonly Dictionary<string,Transform> models=new Dictionary<string,Transform>();
         private readonly Dictionary<string,GameObject> indicators=new Dictionary<string,GameObject>();
         private readonly Mesh ringMesh;
+        private readonly Dictionary<string,GameObject> professionLayers=new Dictionary<string,GameObject>();
         public CitizenView(Transform parent,CitizenSimulation simulation,PrototypePalette palette)
         {
             this.parent=parent; this.simulation=simulation;
@@ -41,6 +42,9 @@ namespace ColonyGame.Presentation
                 box("Hair",new Vector3(0,1.15f,-.025f),new Vector3(.27f,.08f,.26f),new Color(.23f,.15f,.1f));
                 if(female) box("Long hair",new Vector3(0,.98f,-.13f),new Vector3(.26f,.28f,.05f),new Color(.23f,.15f,.1f));
                 box("Face direction",new Vector3(0,1.03f,.135f),new Vector3(.12f,.045f,.025f),skin);
+                var apron=PrototypePalette.Shape(model.transform,"Builder work apron",PrimitiveType.Cube,new Vector3(0,.56f,.145f),new Vector3(.28f,.48f,.06f),palette.Get(new Color(.67f,.46f,.18f)));
+                PrototypePalette.Shape(apron.transform,"Tool belt",PrimitiveType.Cube,new Vector3(0,.1f,.6f),new Vector3(1.08f,.16f,1.1f),palette.Get(new Color(.25f,.18f,.12f)));
+                professionLayers.Add(citizen.Id,apron); apron.SetActive(false);
                 var ring=new GameObject("Citizen selection ring");
                 ring.transform.SetParent(model.transform,false); ring.transform.localPosition=Vector3.up*.025f;
                 ring.AddComponent<MeshFilter>().sharedMesh=ringMesh;
@@ -87,6 +91,7 @@ namespace ColonyGame.Presentation
             {
                 var model=models[citizen.Id];
                 model.gameObject.SetActive(citizen.Active);
+                professionLayers[citizen.Id].SetActive(citizen.Profession==CitizenProfession.Builder);
                 var next=new Vector3((float)citizen.Position.X,0,(float)citizen.Position.Z);
                 var direction=next-model.localPosition;
                 if(direction.sqrMagnitude>.000001f) model.localRotation=Quaternion.LookRotation(direction.normalized,Vector3.up);

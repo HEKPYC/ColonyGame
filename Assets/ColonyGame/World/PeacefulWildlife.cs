@@ -83,6 +83,7 @@ namespace ColonyGame.World
         public WildlifeMovement Movement { get; internal set; }
         internal readonly Queue<WildlifePosition> Route = new Queue<WildlifePosition>();
         internal double Pause;
+        internal bool CitizenThreat;
         // Every schematic animal fits within this radius in every orientation.
         public const double ClearanceRadius = 0.48;
         internal PeacefulWildlifeState(int id, PeacefulSpecies species, WildlifePosition position)
@@ -232,6 +233,7 @@ namespace ColonyGame.World
                 if (!animal.Active) continue;
                 if (!animal.Moving)
                 {
+                    if(animal.CitizenThreat) continue;
                     animal.Pause -= seconds;
                     if (animal.Pause > 0) continue;
                     var choices = Neighbors(animal).ToArray();
@@ -258,10 +260,49 @@ namespace ColonyGame.World
                     if (animal.Route.Count == 0)
                     {
                         animal.Moving = false;
-                        animal.Movement = WildlifeMovement.Wandering;
+                        animal.Movement = animal.CitizenThreat ? WildlifeMovement.Fleeing : WildlifeMovement.Wandering;
                         animal.Pause = 0.8 + random.NextDouble() * 2;
                     }
                 } while (animal.Moving && remaining > 0);
+            }
+        }
+        // Actual citizens interrupt ordinary movement. Expansion routes retain priority.
+        public void ReactToCitizens(IEnumerable<Citizen> citizens,double detectionRadius)
+        {
+            if(!BootstrapSettings.Finite(detectionRadius)||detectionRadius<=0) throw new ArgumentOutOfRangeException(nameof(detectionRadius));
+            var threats=citizens.Where(c=>c.Active).Select(c=>new WildlifePosition(c.Position.X,c.Position.Z)).ToArray();
+            ReconcileTerritory(false);
+            foreach(var animal in animals)
+            {
+                if(!animal.Active||animal.Movement==WildlifeMovement.Evacuating||animal.Route.Count>0) continue;
+                var nearest=threats.OrderBy(p=>p.DistanceSquared(animal.Position)).ToArray();
+                double distance=nearest.Length==0?double.PositiveInfinity:nearest[0].DistanceSquared(animal.Position);
+                double safeRadius=detectionRadius+2;
+                if(animal.CitizenThreat&&distance>=safeRadius*safeRadius)
+                {
+                    animal.CitizenThreat=false; animal.Moving=false; animal.Movement=WildlifeMovement.Wandering; animal.Pause=1;
+                    animal.Destination=animal.Position;
+                    continue;
+                }
+                if(nearest.Length==0||(!animal.CitizenThreat&&distance>detectionRadius*detectionRadius)) continue;
+                var threat=nearest[0];
+                animal.CitizenThreat=true;
+                if(animal.Moving&&animal.Movement==WildlifeMovement.Fleeing&&animal.Destination.DistanceSquared(threat)>distance) continue;
+                bool SafeSegment(WildlifePosition target)
+                {
+                    double dx=target.X-animal.Position.X,dz=target.Z-animal.Position.Z;
+                    if(dx*(animal.Position.X-threat.X)+dz*(animal.Position.Z-threat.Z)<0) return false;
+                    for(int i=1;i<=10;i++)
+                        if(!Valid(new WildlifePosition(animal.Position.X+dx*i/10,animal.Position.Z+dz*i/10))) return false;
+                    return true;
+                }
+                var candidates=Neighbors(animal).Where(p=>p.DistanceSquared(threat)>distance&&SafeSegment(p)).ToArray();
+                var deeper=candidates.Where(p=>habitat.SafetyDepth(p)>habitat.SafetyDepth(animal.Position)).ToArray();
+                if(deeper.Length>0) candidates=deeper;
+                var choice=candidates.OrderByDescending(p=>p.DistanceSquared(threat)).ThenByDescending(habitat.SafetyDepth).ToArray();
+                animal.Movement=WildlifeMovement.Fleeing; animal.Pause=0;
+                if(choice.Length==0) { animal.Moving=false; animal.Pause=1; continue; }
+                animal.Route.Clear(); animal.Destination=choice[0]; animal.Moving=true;
             }
         }
         public bool RequestFlee(int id, WildlifePosition threat)
