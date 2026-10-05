@@ -6,6 +6,7 @@ namespace ColonyGame.Presentation
     [RequireComponent(typeof(Camera))]
     public sealed class PrototypeCamera : MonoBehaviour
     {
+        public System.Func<Vector2, bool> IsPointerOverUI { get; set; }
         private Camera view;
         private Vector3 focus = new Vector3(10, 0, 10);
         private readonly Plane ground = new Plane(Vector3.up, Vector3.zero);
@@ -26,7 +27,7 @@ namespace ColonyGame.Presentation
             }
             focus += direction.normalized * (view.orthographicSize * 1.2f * Time.unscaledDeltaTime);
             var mouse = Mouse.current;
-            if (mouse != null)
+            if (mouse != null && !(IsPointerOverUI?.Invoke(mouse.position.ReadValue()) ?? false))
             {
                 view.orthographicSize = Mathf.Clamp(view.orthographicSize * Mathf.Exp(-mouse.scroll.ReadValue().y * 0.002f), 5, 28);
                 if (mouse.middleButton.isPressed)

@@ -1,4 +1,4 @@
-﻿# ColonyGame: World and Settlement Design
+# ColonyGame: World and Settlement Design
 
 ## Status, authority, and scope
 
@@ -224,7 +224,16 @@ The Butcher produces **both Meat and Wool**, each under the universal production
 | Decorative Wilderness wildlife | Fox, Badger, Squirrel, Deer | Provides no resources, does not attack citizens, is not attacked by citizens, and primarily makes the world feel alive. |
 | Domestic livestock | Cow, Pig, Chicken, Sheep | Remains within the Butcher's enclosure; not freely roaming Wilderness wildlife. |
 
-**TBD**: spawning, movement, population, ecology, predator AI, and combat behavior. No hunting or resource yield from decorative wildlife is approved.
+**Approved peaceful ambient wildlife rules**
+
+- Foxes, Badgers, Squirrels, and Deer are decorative: they provide no resources, cannot be hunted/attacked, and do not attack citizens.
+- Peaceful ambient wildlife normally moves only through Wilderness and never voluntarily enters claimed Settlement Territory. Eligibility follows actual irregular claimed territory, not the original rectangle or a Town Hall radius. If expansion claims an animal's location, territory still expands immediately and unchanged. The animal evacuates continuously at a faster run speed toward a nearby sensible Wilderness exit, temporarily traversing claims only to escape. This permission ends as soon as the animal reaches valid Wilderness; it continues a short distance deeper before resuming normal wandering. Teleportation is reserved for an impossible/broken-state emergency with a development warning. Evacuation never kills animals or awards resources.
+- When future citizens approach, peaceful wildlife should flee away from the citizen while remaining entirely in Wilderness. Among reasonable escape alternatives, prefer movement deeper into Wilderness relative to the actual irregular settlement boundary. Citizens and citizen-triggered fleeing are not implemented by this design update.
+- The Wilderness-only policy belongs to peaceful ambient wildlife. Future Wolves/Bears may enter Settlement Territory and follow different movement/combat rules; their implementation remains deferred.
+- Cow, Pig, Chicken, and Sheep are separate future livestock associated with the Butcher's enclosure and do not roam Wilderness.
+- Schematic prototype geometry/colors are replaceable presentation choices, not permanent design rules.
+
+**TBD**: final spawning/population balance, ecology, detailed movement/flee tuning and citizen detection, predator AI, and combat behavior. No hunting or resource yield from decorative wildlife is approved.
 
 ## 14. Citizen identity
 

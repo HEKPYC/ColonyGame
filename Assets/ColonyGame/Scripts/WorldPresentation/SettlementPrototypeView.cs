@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using ColonyGame.World;
 using UnityEngine;
@@ -12,33 +12,52 @@ namespace ColonyGame.Presentation
         [SerializeField] private Material claimedGround = null;
         [SerializeField] private Material wildernessGround = null;
         [SerializeField] private Material footprintGround = null;
-        [SerializeField] private Material gridBackground = null;
         [SerializeField] private Material treeTrunk = null;
         [SerializeField] private Material treeCanopy = null;
         [SerializeField] private Material hallWalls = null;
-        [SerializeField] private Material hallRoof = null;
         [SerializeField] private int claimedTileCount;
         [SerializeField] private int townHallOccupiedTileCount;
+        [SerializeField, Range(0, 12)] private int wildlifePerSpecies = 2;
+        [SerializeField, Range(1.1f, 3f)] private float wildlifeRunSpeedMultiplier = 1.8f;
+        private PrototypePalette palette;
+        private Material[] tileMaterials;
+        private PeacefulWildernessHabitat wildlifeHabitat;
+        private PeacefulWildlifeSystem wildlife;
+        private PeacefulWildlifeView wildlifeView;
         private Mesh groundMesh;
         private GameObject generatedRoot;
         private GameObject previewRoot;
         private readonly List<Renderer> previewCells = new List<Renderer>();
         private Material validPreview;
         private Material invalidPreview;
-        private bool placingHouse;
+        private BuildingDefinition selectedBuilding;
+        private int orientationDegrees;
+        private PrototypeHud hud;
         private bool hasCursorTile;
         private TileCoordinate cursorTile;
-        private HousePlacementValidity placementValidity;
+        private BuildingPlacementValidity placementValidity;
         private int minX = -6, minZ = -6, maxX = 26, maxZ = 26;
-        private readonly Rect debugPanel = new Rect(12, 12, 510, 165);
         public SettlementState State { get; private set; }
 
         private void Start()
         {
             State = SettlementState.CreatePrototype();
-            CreatePreview();
+            hud = new PrototypeHud(transform, State.AvailableBuildings, SelectBuilding, CancelPlacement);
+            palette = new PrototypePalette(hallWalls);
+            var shader = Resources.Load<Shader>("PrototypeTileCells");
+            if (shader == null) throw new MissingReferenceException("PrototypeTileCells shader must be imported before Play Mode.");
+            tileMaterials = new[] { claimedGround, wildernessGround, footprintGround }.Select(source =>
+            {
+                var material = new Material(shader) { name = "Runtime Tile cell surface" };
+                material.SetColor("_BaseColor", source.GetColor("_BaseColor"));
+                return material;
+            }).ToArray();
+            CreatePreviewMaterials();
             RefreshPresentation();
-            Debug.Log("House prototype: H toggles placement; left click places; Escape cancels.", this);
+            wildlifeHabitat = new PeacefulWildernessHabitat(State.Territory, new WildlifeBounds(minX, minZ, maxX, maxZ));
+            wildlife = new PeacefulWildlifeSystem(wildlifeHabitat, wildlifePerSpecies, runSpeedMultiplier: wildlifeRunSpeedMultiplier);
+            wildlifeView = new PeacefulWildlifeView(transform, wildlife, palette);
+            Debug.Log("Building prototype: temporary Town Hall Level 4; B toggles build menu; R rotates; left click places; Escape cancels.", this);
         }
         private void RefreshPresentation()
         {
@@ -54,20 +73,28 @@ namespace ColonyGame.Presentation
             maxZ = State.Territory.ClaimedTiles.Max(t => t.Z) + 7;
             var camera = Camera.main;
             if (camera != null && camera.TryGetComponent<PrototypeCamera>(out var navigation))
+            {
                 navigation.SetInspectionBounds(minX, minZ, maxX, maxZ);
+                navigation.IsPointerOverUI = hud.IsPointerOverUI;
+            }
             CreateGround();
-            CreateTownHall();
             foreach (var building in State.Buildings)
-                if (building.Type == BuildingType.House) CreateHouse(building);
+                SchematicBuildingView.Create(building, generatedRoot.transform, palette);
             CreateForest();
-            Debug.Log($"Settlement prototype: {claimedTileCount} claimed Tiles; initial range X/Z 0..19 (20 x 20). Town Hall: 5 x 5, origin (7, 7), X/Z 7..11, {townHallOccupiedTileCount} occupied Tiles; no starting influence.", this);
+            if (wildlifeHabitat != null)
+            {
+                wildlifeHabitat.Bounds = new WildlifeBounds(minX, minZ, maxX, maxZ);
+                wildlife.ReconcileTerritory();
+                wildlifeView?.Sync();
+            }
+            Debug.Log($"Settlement prototype: {claimedTileCount} claimed Tiles; {State.Buildings.Count} buildings; initial range X/Z 0..19 (20 x 20). Town Hall: {State.TownHall.Width} x {State.TownHall.Depth}, origin {State.TownHall.Origin}, {townHallOccupiedTileCount} occupied Tiles; no starting influence.", this);
         }
         private void CreateGround()
         {
-            Primitive("Grid Background", PrimitiveType.Cube, new Vector3((minX + maxX) * 0.5f, -0.12f, (minZ + maxZ) * 0.5f), new Vector3(maxX - minX, 0.2f, maxZ - minZ), gridBackground);
             var occupied = new HashSet<TileCoordinate>(State.Buildings.SelectMany(b => b.OccupiedTiles));
             var vertices = new List<Vector3>();
-            var triangles = new[] { new List<int>(), new List<int>(), new List<int>(), new List<int>() };
+            var uv = new List<Vector2>();
+            var triangles = new[] { new List<int>(), new List<int>(), new List<int>() };
             for (int z = minZ; z < maxZ; z++)
             {
                 for (int x = minX; x < maxX; x++)
@@ -78,60 +105,25 @@ namespace ColonyGame.Presentation
                     vertices.Add(new Vector3(x, 0, z + 1));
                     vertices.Add(new Vector3(x + 1, 0, z + 1));
                     vertices.Add(new Vector3(x + 1, 0, z));
+                    uv.AddRange(new[] { Vector2.zero, Vector2.up, Vector2.one, Vector2.right });
                     var tile = new TileCoordinate(x, z);
                     int material = occupied.Contains(tile) ? 2 : State.Territory.IsClaimed(tile) ? 0 : 1;
                     triangles[material].AddRange(new[] { start, start + 1, start + 2, start, start + 2, start + 3 });
                 }
             }
-            // Equal-width grid strips replace inset gaps. Every integer boundary is identical.
-            // The small elevation prevents coplanar depth artifacts against the filled ground.
-            const float halfLineWidth = 0.02f;
-            const float gridHeight = 0.01f;
-            for (int boundary = minX; boundary <= maxX; boundary++)
-                AddGridQuad(vertices, triangles[3], Mathf.Max(minX, boundary - halfLineWidth), minZ,
-                    Mathf.Min(maxX, boundary + halfLineWidth), maxZ, gridHeight);
-            for (int boundary = minZ; boundary <= maxZ; boundary++)
-                AddGridQuad(vertices, triangles[3], minX, Mathf.Max(minZ, boundary - halfLineWidth),
-                    maxX, Mathf.Min(maxZ, boundary + halfLineWidth), gridHeight);
-            groundMesh = new Mesh { name = "Prototype Tile Grid", indexFormat = vertices.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
+            groundMesh = new Mesh { name = "Contiguous Prototype Tiles", indexFormat = vertices.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
             groundMesh.SetVertices(vertices);
-            groundMesh.subMeshCount = 4;
-            for (int i = 0; i < 4; i++) groundMesh.SetTriangles(triangles[i], i);
+            groundMesh.SetUVs(0, uv);
+            groundMesh.subMeshCount = 3;
+            for (int i = 0; i < 3; i++) groundMesh.SetTriangles(triangles[i], i);
             groundMesh.RecalculateNormals();
             groundMesh.RecalculateBounds();
-            var ground = new GameObject("Tile Grid");
+            var ground = new GameObject("Ground Tiles");
             ground.transform.SetParent(generatedRoot.transform, false);
             ground.AddComponent<MeshFilter>().sharedMesh = groundMesh;
             var renderer = ground.AddComponent<MeshRenderer>();
-            renderer.sharedMaterials = new[] { claimedGround, wildernessGround, footprintGround, gridBackground };
+            renderer.sharedMaterials = tileMaterials;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
-        }
-        private static void AddGridQuad(List<Vector3> vertices, List<int> triangles,
-            float minX, float minZ, float maxX, float maxZ, float height)
-        {
-            int start = vertices.Count;
-            vertices.Add(new Vector3(minX, height, minZ));
-            vertices.Add(new Vector3(minX, height, maxZ));
-            vertices.Add(new Vector3(maxX, height, maxZ));
-            vertices.Add(new Vector3(maxX, height, minZ));
-            triangles.AddRange(new[] { start, start + 1, start + 2, start, start + 2, start + 3 });
-        }
-        private void CreateTownHall()
-        {
-            var hall = State.TownHall;
-            var center = new Vector3(hall.Origin.X + hall.Width * 0.5f, 0, hall.Origin.Z + hall.Depth * 0.5f);
-            // A compact presentation marker leaves the 25 reserved footprint cells readable.
-            Primitive("Town Hall Walls", PrimitiveType.Cube, center + Vector3.up * 0.3f, new Vector3(0.6f, 0.6f, 0.6f), hallWalls);
-            Primitive("Town Hall Roof", PrimitiveType.Cube, center + Vector3.up * 0.65f, new Vector3(0.8f, 0.1f, 0.8f), hallRoof);
-            Primitive("Town Hall Tower", PrimitiveType.Cube, center + Vector3.up * 0.82f, new Vector3(0.2f, 0.24f, 0.2f), hallWalls);
-        }
-        private void CreateHouse(BuildingState house)
-        {
-            var center = new Vector3(house.Origin.X + house.Width * 0.5f, 0, house.Origin.Z + house.Depth * 0.5f);
-            Primitive("House Walls " + house.Id, PrimitiveType.Cube, center + Vector3.up * 0.25f,
-                new Vector3(0.6f, 0.5f, 0.6f), hallWalls);
-            Primitive("House Roof " + house.Id, PrimitiveType.Cube, center + Vector3.up * 0.55f,
-                new Vector3(0.8f, 0.1f, 0.8f), hallRoof);
         }
         private void CreateForest()
         {
@@ -149,30 +141,37 @@ namespace ColonyGame.Presentation
                 }
             }
         }
-        private void Primitive(string name, PrimitiveType type, Vector3 position, Vector3 scale, Material material)
+        private void Primitive(string name, PrimitiveType type, Vector3 position, Vector3 scale, Material material, int orientation = 0)
         {
             var visual = GameObject.CreatePrimitive(type);
             visual.name = name;
             visual.transform.SetParent(generatedRoot.transform, false);
             visual.transform.localPosition = position;
             visual.transform.localScale = scale;
+            visual.transform.localRotation = Quaternion.Euler(0, orientation, 0);
             var renderer = visual.GetComponent<Renderer>();
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             // These visuals are not authoritative occupancy or resource nodes.
             Destroy(visual.GetComponent<Collider>());
         }
-        private void CreatePreview()
+        private void CreatePreviewMaterials()
         {
-            validPreview = new Material(claimedGround) { name = "Valid House Preview" };
-            invalidPreview = new Material(claimedGround) { name = "Invalid House Preview" };
+            validPreview = new Material(claimedGround) { name = "Valid Building Preview" };
+            invalidPreview = new Material(claimedGround) { name = "Invalid Building Preview" };
             validPreview.SetColor("_BaseColor", new Color(0.2f, 0.85f, 0.35f));
             invalidPreview.SetColor("_BaseColor", new Color(0.9f, 0.22f, 0.2f));
-            previewRoot = new GameObject("House Placement Preview");
+        }
+        private void RebuildPreview()
+        {
+            if (previewRoot != null) { previewRoot.SetActive(false); Destroy(previewRoot); }
+            previewCells.Clear();
+            previewRoot = new GameObject("Building Placement Preview");
             previewRoot.transform.SetParent(transform, false);
-            for (int z = 0; z < 3; z++)
+            var footprint = selectedBuilding.GetFootprint(orientationDegrees);
+            for (int z = 0; z < footprint.Depth; z++)
             {
-                for (int x = 0; x < 3; x++)
+                for (int x = 0; x < footprint.Width; x++)
                 {
                     var cell = GameObject.CreatePrimitive(PrimitiveType.Cube);
                     cell.name = "Preview Tile";
@@ -187,61 +186,105 @@ namespace ColonyGame.Presentation
                 }
             }
             previewRoot.SetActive(false);
+            hasCursorTile = false;
+        }
+        private void SelectBuilding(BuildingDefinition definition)
+        {
+            selectedBuilding = definition;
+            orientationDegrees = 0;
+            RebuildPreview();
+        }
+        private void CancelPlacement()
+        {
+            selectedBuilding = null;
+            hasCursorTile = false;
+            if (previewRoot != null) previewRoot.SetActive(false);
         }
         private void Update()
         {
-            if (State == null || previewRoot == null) return;
+            if (State == null || hud == null) return;
+            wildlifeView?.Tick(Time.deltaTime);
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
-                if (keyboard.hKey.wasPressedThisFrame) placingHouse = !placingHouse;
-                if (keyboard.escapeKey.wasPressedThisFrame) placingHouse = false;
+                if (keyboard.bKey.wasPressedThisFrame) hud.SetBuildListOpen(!hud.BuildListOpen);
+                if (keyboard.escapeKey.wasPressedThisFrame) { CancelPlacement(); hud.SetBuildListOpen(false); }
+                if (selectedBuilding != null && keyboard.rKey.wasPressedThisFrame)
+                {
+                    orientationDegrees = (orientationDegrees + 90) % 360;
+                    RebuildPreview();
+                }
             }
             var mouse = Mouse.current;
             var camera = Camera.main;
             hasCursorTile = false;
-            if (placingHouse && mouse != null && camera != null)
+            if (selectedBuilding != null && mouse != null && camera != null)
             {
                 var position = mouse.position.ReadValue();
-                var guiPosition = new Vector2(position.x, Screen.height - position.y);
                 var plane = new Plane(transform.up, transform.position);
                 var ray = camera.ScreenPointToRay(position);
-                if (!debugPanel.Contains(guiPosition) && camera.pixelRect.Contains(position) && plane.Raycast(ray, out var distance))
+                if (!hud.IsPointerOverUI(position) && camera.pixelRect.Contains(position) && plane.Raycast(ray, out var distance))
                 {
                     var local = transform.InverseTransformPoint(ray.GetPoint(distance));
                     cursorTile = new TileCoordinate(Mathf.FloorToInt(local.x), Mathf.FloorToInt(local.z));
                     hasCursorTile = true;
-                    placementValidity = State.ValidateHousePlacement(cursorTile);
-                    if (mouse.leftButton.wasPressedThisFrame && placementValidity == HousePlacementValidity.Valid &&
-                        State.TryPlacePrototypeHouse(cursorTile, out _))
+                    placementValidity = State.ValidateBuildingPlacement(selectedBuilding.Type, cursorTile, orientationDegrees);
+                    if (mouse.leftButton.wasPressedThisFrame && placementValidity == BuildingPlacementValidity.Valid &&
+                        State.TryPlacePrototypeBuilding(selectedBuilding.Type, cursorTile, orientationDegrees, out _))
                     {
                         RefreshPresentation();
-                        placementValidity = State.ValidateHousePlacement(cursorTile);
+                        placementValidity = State.ValidateBuildingPlacement(selectedBuilding.Type, cursorTile, orientationDegrees);
                     }
                 }
             }
-            previewRoot.SetActive(placingHouse && hasCursorTile);
+            if (previewRoot != null) previewRoot.SetActive(selectedBuilding != null && hasCursorTile);
             if (hasCursorTile)
             {
                 previewRoot.transform.localPosition = new Vector3(cursorTile.X, 0, cursorTile.Z);
-                var material = placementValidity == HousePlacementValidity.Valid ? validPreview : invalidPreview;
+                var material = placementValidity == BuildingPlacementValidity.Valid ? validPreview : invalidPreview;
                 foreach (var cell in previewCells) cell.sharedMaterial = material;
             }
         }
-        private void OnGUI()
+        private void LateUpdate()
         {
-            GUI.Box(debugPanel, "Settlement Prototype");
-            GUI.Label(new Rect(24, 38, 475, 24), $"Claimed Tiles: {claimedTileCount} | Buildings: {State?.Buildings.Count ?? 0}");
-            GUI.Label(new Rect(24, 62, 475, 24), $"Initial territory: 20 x 20 | Town Hall: 5 x 5 ({townHallOccupiedTileCount} Tiles)");
-            GUI.Label(new Rect(24, 86, 475, 24), "WASD / Arrows: pan | Middle-drag: pan | Wheel: zoom");
-            GUI.Label(new Rect(24, 110, 475, 24), "H: toggle House placement | Left click: place | Escape: cancel");
-            string status = !placingHouse ? "House Placement: Off" : !hasCursorTile ? "House Placement: move cursor onto ground" :
-                $"House Placement {cursorTile}: " + (placementValidity == HousePlacementValidity.Valid ? "Valid" :
-                    placementValidity == HousePlacementValidity.Occupied ? "Invalid: occupied Tiles" : "Invalid: footprint outside territory");
-            GUI.Label(new Rect(24, 134, 475, 24), status);
+            if (State != null && hud != null)
+                hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", wildlife?.Animals.Count(a => a.Active) ?? 0);
+        }
+        private static string PlacementStatus(BuildingPlacementValidity validity)
+        {
+            switch (validity)
+            {
+                case BuildingPlacementValidity.Valid: return "VALID";
+                case BuildingPlacementValidity.OutsideTerritory: return "INVALID: outside territory";
+                case BuildingPlacementValidity.Occupied: return "INVALID: occupied Tiles";
+                case BuildingPlacementValidity.Locked: return "INVALID: locked by Town Hall level";
+                case BuildingPlacementValidity.NotPlayerPlaceable: return "INVALID: not player-placeable";
+                default: return "INVALID: building type or orientation";
+            }
+        }
+        private void OnGUI() { if (State != null) DrawBuildingLabels(); }
+        private void DrawBuildingLabels()
+        {
+            var camera = Camera.main;
+            if (camera == null) return;
+            var style = new GUIStyle(GUI.skin.box) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
+            foreach (var building in State.Buildings)
+            {
+                var center = new Vector3(building.Origin.X + building.Width * 0.5f, 1.2f, building.Origin.Z + building.Depth * 0.5f);
+                var screen = camera.WorldToScreenPoint(transform.TransformPoint(center));
+                if (screen.z <= 0 || !camera.pixelRect.Contains(new Vector2(screen.x, screen.y))) continue;
+                var point = new Vector2(screen.x, Screen.height - screen.y);
+                var label = new Rect(point.x - 95, point.y - 12, 190, 24);
+                if (hud != null && hud.IsPointerOverUI(new Vector2(screen.x, screen.y))) continue;
+                GUI.Box(label, building.Definition.DisplayName, style);
+            }
         }
         private void OnDestroy()
         {
+            hud?.Dispose();
+            wildlifeView?.Dispose();
+            palette?.Dispose();
+            if (tileMaterials != null) foreach (var material in tileMaterials) Destroy(material);
             if (groundMesh != null) Destroy(groundMesh);
             if (validPreview != null) Destroy(validPreview);
             if (invalidPreview != null) Destroy(invalidPreview);
