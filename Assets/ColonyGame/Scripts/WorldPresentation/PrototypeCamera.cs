@@ -9,6 +9,9 @@ namespace ColonyGame.Presentation
         private Camera view;
         private Vector3 focus = new Vector3(10, 0, 10);
         private readonly Plane ground = new Plane(Vector3.up, Vector3.zero);
+        private Rect inspectionBounds = Rect.MinMaxRect(-6, -6, 26, 26);
+        public void SetInspectionBounds(float minX, float minZ, float maxX, float maxZ)
+        { inspectionBounds = Rect.MinMaxRect(minX, minZ, maxX, maxZ); }
         private void Awake() { view = GetComponent<Camera>(); }
         private void Update()
         {
@@ -34,8 +37,8 @@ namespace ColonyGame.Presentation
                 }
             }
             // Presentation bounds keep the finite prototype in reach; this is not player territory enforcement.
-            focus.x = Mathf.Clamp(focus.x, -6, 26);
-            focus.z = Mathf.Clamp(focus.z, -6, 26);
+            focus.x = Mathf.Clamp(focus.x, inspectionBounds.xMin, inspectionBounds.xMax);
+            focus.z = Mathf.Clamp(focus.z, inspectionBounds.yMin, inspectionBounds.yMax);
             transform.position = focus - transform.forward * 45;
         }
         private bool GroundPoint(Vector2 screen, out Vector3 point)

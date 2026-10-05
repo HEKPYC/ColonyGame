@@ -1,101 +1,98 @@
 ﻿# Settlement Prototype
 
-## Scope and scene setup
+## Scope and setup
 
-This slice implements only a logical Tile grid, initial territory, already-completed Town Hall, finite decorative Wilderness, and an inspection camera. It does not implement citizens, resources, production, construction, expansion, roads, networking, player characters, or world saving/loading. The approved world design remains unchanged.
+This vertical slice provides the initial Tile world, completed starting Town Hall, inspection camera, prototype House placement, immediate completion, and one-time territory expansion. It adds no construction resources, timers, builders, residents, upgrades, demolition, roads, economy, or world persistence. The approved world design remains unchanged.
 
-In Unity **6000.6.4f1**:
+Use Unity **6000.6.4f1**. For the existing, manually verified scene, **do not regenerate the scene or materials**. Exit Play Mode, allow scripts to compile/import, then open `Assets/Scenes/SettlementPrototype.unity` and enter Play Mode. Unity must generate `HousePlacementTests.cs.meta` on import; retain it with the new test source.
 
-1. Open the project and allow all new scripts, assembly definitions, and tests to import. Unity generates their `.meta` files; keep those with the corresponding assets.
-2. Choose **ColonyGame > Create Settlement Prototype Scene** once. Save any modified scene when prompted.
-3. The command creates `Assets/Scenes/SettlementPrototype.unity`, eight URP Unlit prototype material assets in `Assets/ColonyGame/PrototypeMaterials/`, and their Unity-generated metadata. It adds the prototype after MainMenu in the build scene list while preserving other scene entries. It refuses to overwrite an existing prototype scene and reuses existing prototype materials without modifying them.
-4. Open SettlementPrototype and enter Play Mode. Focus Game View to use the camera controls.
+For a new checkout without the scene, use **ColonyGame > Create Settlement Prototype Scene** once. The command creates the scene and eight URP Unlit prototype materials, adds the prototype after MainMenu in the build scene list, preserves other entries, and refuses to overwrite an existing prototype. Future scenes use the same updated runtime view automatically; no setup-command changes are needed.
 
-The scene contains a Settlement Prototype root and an orthographic Prototype Camera with one AudioListener. The view generates its finite ground mesh, Town Hall primitives, and forest decoration at runtime. No prefabs or final art are required. Materials are saved and referenced by the scene so they are included in builds.
+MainMenu, profiles, settings, packages, and project settings are unchanged by this slice. MainMenu remains the launch scene; profile selection still opens the existing placeholder. Inspect SettlementPrototype directly for now.
 
-MainMenu, profiles, and audio/settings behavior remain intact. Selecting a profile still opens the existing placeholder. Profile-to-world integration is deferred. MainMenu remains the launch scene; inspect this separate prototype directly in Editor for now.
-
-## Files and architecture
+## Domain architecture
 
 All paths below are relative to the repository root.
 
 | File | Responsibility |
 | --- | --- |
-| `Assets/ColonyGame/World/ColonyGame.World.asmdef` | Pure domain assembly with no Unity engine references. |
-| `Assets/ColonyGame/World/TileCoordinate.cs` | Integer X/Z identity, value equality, and hashing. |
-| `Assets/ColonyGame/World/SettlementState.cs` | Claimed-Tile set, completed Town Hall instance, and initial-state factory. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/SettlementPrototypeView.cs` | Renders domain state using ground/materials and primitives; exposes lightweight development counts. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/PrototypeCamera.cs` | Input System inspection pan/zoom, independent of simulation. |
-| `Assets/ColonyGame/Editor/SettlementPrototypeSetup.cs` | Non-overwriting Editor scene/material setup and build-list insertion. |
-| `Assets/ColonyGame/Tests/Editor/ColonyGame.World.Tests.asmdef` | Editor test assembly using the installed Unity Test Framework. |
-| `Assets/ColonyGame/Tests/Editor/SettlementStateTests.cs` | Focused NUnit logical tests. |
+| `Assets/ColonyGame/World/ColonyGame.World.asmdef` | Pure C# domain assembly without Unity engine references. |
+| `Assets/ColonyGame/World/TileCoordinate.cs` | Integer X/Z identity, equality, and hashing. |
+| `Assets/ColonyGame/World/SettlementState.cs` | Individual claimed Tiles, building state/list, authoritative occupancy, House validation/placement, and one-time influence. |
+| `Assets/ColonyGame/Scripts/WorldPresentation/SettlementPrototypeView.cs` | Mouse-to-Tile conversion, preview, placement requests, runtime ground/building/forest presentation, and debug counts. |
+| `Assets/ColonyGame/Scripts/WorldPresentation/PrototypeCamera.cs` | Existing Input System pan/zoom with inspection bounds following rendered territory extent. |
+| `Assets/ColonyGame/Editor/SettlementPrototypeSetup.cs` | Existing non-overwriting scene/material setup. |
+| `Assets/ColonyGame/Tests/Editor/SettlementStateTests.cs` | Four existing initial-state tests. |
+| `Assets/ColonyGame/Tests/Editor/HousePlacementTests.cs` | Seven focused House placement/influence tests. |
 
-`SettlementTerritory` owns a private `HashSet<TileCoordinate>`, constructed from individual claimed Tiles. Membership is authoritative; neither a rectangle nor rendered GameObjects define ownership. Construction copies and deduplicates supplied Tiles. Enumeration does not expose the mutable set. Arbitrary irregular/disconnected sets and holes are representable, but no territory-expansion operation is implemented.
+`SettlementTerritory` owns a private `HashSet<TileCoordinate>`. Membership defines ownership; a rendered rectangle does not. It copies/deduplicates constructor input and does not expose the mutable set. Influence adds individual Tiles through the domain assembly.
 
-`BuildingState` holds the Town Hall's stable ID (`starting-town-hall`), type (`TownHall`), integer origin, footprint dimensions, orientation (0 degrees), completed status, and enumerable occupied coordinates. Creating it does not modify territory. No levels, upgrades, construction, generic building placement, or influence behavior are implemented.
+`BuildingState` stores identity, type, origin, width/depth, orientation in 90-degree increments, completion, starting-building exemption, occupied coordinates, and whether influence has applied. Houses receive distinct IDs and occupy 3 x 3 Tiles. Orientation is preserved as state (currently 0 degrees); a rotation interface and future rectangular building types are deferred. The starting Town Hall retains ID `starting-town-hall` and its 5 x 5 footprint.
 
-`SettlementState` owns this territory and Town Hall state. It is recreated on each prototype run. Plain values and enumerable coordinates provide a straightforward basis for future serialization without choosing a world-save format now. Rendering consumes state; it does not create authoritative citizen, tree, or resource entities.
+`SettlementState` owns a read-only building list and authoritative occupied-Tile set. `ValidateHousePlacement` is read-only: all nine footprint Tiles must already be claimed and none may belong to another building. `TryPlacePrototypeHouse` rejects invalid placement without mutation; valid placement creates a completed House and applies its influence immediately. Rendering, camera movement, and preview validation never apply influence.
 
-## Coordinates and prototype presentation scale
+`ApplyBuildingInfluence` accepts only a building belonging to that settlement. It returns the number of newly claimed Tiles, marks influence applied even when that number is zero, and returns zero on subsequent calls. The starting Town Hall is explicitly exempt and never expands the initial territory. No resources are awarded. State resets when Play Mode ends; no save format or save/load system is introduced.
 
-A Tile is identified by integer `(X, Z)`. These logical axes map to Unity's horizontal X/Z plane; Y is presentation height. For this prototype only, one Tile is drawn as one Unity unit. That is a visual scale choice, not a final approved physical Tile size.
+## Coordinates and runtime presentation
 
-- Initial claimed range: **X = 0..19, Z = 0..19**, inclusive: exactly **400 Tiles**.
-- Town Hall origin: **(7, 7)**; reserved dimensions **5 x 5**.
-- Town Hall occupied range: **X = 7..11, Z = 7..11**, inclusive: exactly **25 Tiles**.
-- Orientation: **0 degrees**, already completed.
-- A rendered Tile fills exactly `[X, X+1]` and `[Z, Z+1]`. Uniform thin grid strips mark every integer boundary; there are no major lines or larger cell groups.
-- Territory visual bounds are `[0, 20]` on each axis; Town Hall visual footprint bounds are `[7, 12]`, with center `(9.5, 9.5)`. This chooses the lower of the two near-center alignments in the even-sized territory. Its half-unit offset from territory center `(10, 10)` is intentional and deterministic.
-- No Town Hall influence is applied; all other coordinates are unclaimed.
+- Initial claimed range: **X = 0..19, Z = 0..19**, inclusive: **400 Tiles**.
+- Starting Town Hall origin: **(7, 7)**; X/Z = 7..11, inclusive: **25 occupied Tiles**.
+- One logical Tile is drawn as exactly **one 1 x 1 world cell** on the X/Z plane. Y is visual height. Final physical scale remains undecided.
+- Each ground quad fills `[X, X+1]` and `[Z, Z+1]`.
+- Uniform runtime grid strips mark every integer boundary: 0.04-unit interior width, elevated 0.01 units to avoid coplanar artifacts, clipped at outer rendering edges. There are no major lines, chunks, or grouped cells.
 
-## Visual presentation and Wilderness
+**The grid is game presentation and remains visible independently of Editor Gizmos, including standalone builds.** Ground uses claimed, Wilderness, occupied-footprint, and grid materials. Every building's reserved footprint is highlighted in gold. Compact primitive House/Town Hall markers leave the footprint cells readable; visuals do not define occupancy.
 
-Ground rendering covers **X/Z = -6..25**, inclusive: a finite 32 x 32 visual area with six Tiles of Wilderness beyond each side of the settlement. These are rendering limits, not authoritative world limits or citizen travel limits.
+Initially the renderer covers X/Z = -6..25, inclusive. After placement it rebuilds a finite visual area extending six Tiles beyond the actual claimed extent. This visual bounding rectangle does not claim land: holes and Wilderness beside protrusions retain their domain membership and appearance. Camera inspection bounds follow that area so chained expansion remains accessible.
 
-A single ground mesh uses four material groups: lighter green claimed ground, dark green Wilderness, golden Town Hall footprint Tiles, and uniform dark grid lines. Each ground quad fills one 1 x 1 Tile. Grid lines are centered on every integer X/Z boundary with the same 0.04-unit interior width and no every-N-Tile emphasis. They sit 0.01 units above ground to avoid coplanar depth artifacts; outer edges are clipped to the rendered area. A compact cream/dark-roof Town Hall marker leaves its 5 x 5 reserved footprint easy to count. The marker is illustrative and does not define occupancy or final building scale.
+Sparse deterministic trees exist only on unclaimed rendered Tiles. Refresh disables the previous presentation immediately, rebuilds from domain state, and removes decoration from newly claimed Tiles. Trees have no retained colliders, resource entities, harvesting, or persistence. The preview uses nine separated green/red cells so individual boundaries remain readable.
 
-Sparse deterministic cylinder/sphere trees appear only on unclaimed rendered Tiles. Their compact canopies and lower height reduce obstruction of individual grid cells; their positions and decorative role are unchanged. They are disposable decoration, have no retained colliders, and have no harvesting, targeting, resource-node, wildlife, or persistence behavior. No trees enter the authoritative domain state. No infinite world, streaming, technical chunks, or resource deposits are present.
+## Controls and placement
 
-## Camera controls
+Focus Game View before using controls.
 
-- **WASD or arrow keys**: pan on the X/Z plane.
+- **WASD / arrow keys**: pan.
 - **Middle mouse drag**: ground-plane pan.
-- **Mouse wheel**: orthographic zoom, clamped to sizes 5..28.
+- **Mouse wheel**: orthographic zoom, sizes 5..28.
+- **H**: toggle House placement mode.
+- **Left click**: place when the preview is valid; mode stays active for additional Houses.
+- **Escape / H**: cancel placement mode.
 
-The camera is angled 70 degrees downward and starts centered on the settlement. Focus panning is bounded to X/Z -6..26 to keep this finite prototype accessible. These are presentation-only inspection limits; the camera is not a physical player and does not implement territory movement enforcement. Mouse/keyboard reads use the already installed Input System; no new input package or changes to the existing input asset are required.
+The mouse ray intersects the ground plane and floors local X/Z to the footprint origin. The preview covers origin X..X+2 and Z..Z+2. **Green** means all nine Tiles are claimed and free. **Red** means some footprint Tile is Wilderness or occupied by the Town Hall/another House. Invalid clicks change nothing; influence cannot make an initially invalid placement legal. The debug panel displays cursor origin, validity/reason, Claimed Tiles, Building count (including Town Hall), original dimensions, and camera controls. Clicking over the panel does not place a House.
 
-## Validation
+## Influence and the clean-edge test
 
-In Unity, choose **Window > General > Test Runner**, then run the **EditMode** `SettlementStateTests` tests. They verify:
+A completed House claims its **3 x 3 footprint plus three Tiles outward on every side**: a **9 x 9** influence area.
 
-1. Exactly 400 unique claimed Tiles and all expected 0..19 coordinates.
-2. Unclaimed surrounding and distant coordinates.
-3. A completed, unrotated 5 x 5 Town Hall with the exact 25 expected coordinates, entirely within territory, and no expansion beyond 400.
-4. Irregular individual territory membership, holes, negative coordinates, deduplication, and ownership of input data.
+For origin `(x, z)`, influence is inclusive X = x-3..x+5 and Z = z-3..z+5. Already claimed Tiles are deduplicated. Territory remains an arbitrary set, never a resized settlement rectangle.
 
-Environment results: these four NUnit test methods were compiled and executed successfully using the installed NUnit library and Unity's bundled Mono compiler/runtime. They ran directly outside the Unity Test Runner because the domain has no engine dependency. Domain and Unity presentation/Editor source compilation were also checked against installed Unity/URP/Input System assemblies. This does not verify Unity asset import, scene rendering, or player builds.
+To reproduce **400 -> 427**:
 
-Manual Play Mode checks:
+1. Start a fresh Play Mode session. Confirm **Claimed Tiles: 400**, **Buildings: 1**, and Town Hall occupancy 25.
+2. Press **H**. Move the cursor until the debug label shows origin **(17, 8)** and a green preview. Its footprint occupies X = 17..19, Z = 8..10, entirely inside the initial right boundary.
+3. Left click once. Confirm **Claimed Tiles: 427**, **Buildings: 2**, and a completed House marker.
+4. Count the new protrusion: **X = 20..22, Z = 5..13**, exactly **3 x 9 = 27 newly claimed Tiles**. The full influence is X = 14..22, Z = 5..13.
+5. Verify Wilderness above/below that protrusion remains unclaimed (for example `(20, 4)` and `(20, 14)`), as does `(23, 8)`. Trees on newly claimed Tiles disappear without resources. Grid cells retain their original dimensions and uniform lines.
+6. Move the cursor to **(20, 8)**. It was illegal before expansion but is now green. Place a second House: **454 claimed Tiles**, **3 buildings**. Its footprint uses the first House's newly claimed territory; expansion can continue outward.
 
-- Confirm the development panel and Settlement Prototype Inspector show **400 claimed Tiles**, **20 x 20**, **5 x 5 Town Hall**, and **25 occupied Tiles**. The startup Console log also reports coordinates/counts.
-- Inspect the full claimed border, all 25 golden footprint Tiles, the raised Town Hall, and surrounding forest. Confirm no forest decoration appears inside claimed territory.
-- Test keyboard pan, middle-drag, and zoom, including camera bounds, at common desktop aspect ratios. Confirm grid lines remain readable at inspection zoom levels.
-- Restart Play Mode and confirm identical initial state and decorative placement.
-- Inspect the Console for missing materials, shader/input errors, camera warnings, or duplicate AudioListeners.
-- Confirm MainMenu is still first in the build scene list, followed by SettlementPrototype; open MainMenu and check existing profile/settings flows remain unchanged.
+Additional manual checks:
 
-## Known limitations and remaining Editor step
+- In a fresh session, place at `(3, 3)`: all influence was already claimed, so count remains **400** and buildings becomes **2**.
+- In a fresh session, try `(18, 8)`: one footprint column is Wilderness; red preview and invalid clicks leave **400 / 1**.
+- Try overlapping Town Hall at `(6, 6)`, or overlapping an existing House: red preview and no mutation.
+- Toggle/cancel repeatedly, move the preview through Wilderness, pan/zoom, and refresh the presentation through further placements. Counts must change only after successful placement.
+- Disable Game View Gizmos and inspect the grid, including all 25 Town Hall cells and nine House footprint cells. Verify camera controls and common desktop aspect ratios.
+- Restart Play Mode and verify the initial **400 / 1** state returns. Check Console for missing materials, shader/input errors, camera warnings, or duplicate AudioListeners.
+- Open MainMenu and smoke-test existing profile/settings behavior. A standalone build using the existing scene list should also show the runtime grid when SettlementPrototype is opened; no menu-to-prototype routing was added.
 
-Unity automation previously could not reliably connect to licensing in this sandbox. This task therefore provides source and the explicit Editor setup command without retrying licensing or modifying machine/security settings. **The saved prototype scene, material assets, metadata, and build-list entry must be generated by running the setup command in your normal Editor.** New source/assembly/test `.meta` files are generated on import.
+## Automated validation and remaining Editor checks
 
-The prototype has static initial domain state, finite visuals, no world persistence, no profile integration, and no physical player. Materials are simple Unlit placeholders with no final lighting or artwork. Ground geometry and tree objects are generated at startup; no general optimization framework is added. The small on-screen development panel is IMGUI, separate from the existing UI Toolkit menu. No final Tile size, starting Town Hall level, or undecided world mechanics are inferred.
+In Unity, choose **Window > General > Test Runner > EditMode** and run `SettlementStateTests` and `HousePlacementTests` (11 test methods). Coverage includes original 400-Tile/Town Hall/irregular-set behavior, valid interior placement and immediate completion, partial-Wilderness rejection without mutation, Town Hall/House overlap rejection, zero-growth interior influence, exact 27-Tile protrusion with surrounding Wilderness preserved, repeated influence/validation idempotence, the starting exemption, chaining with unique identities, and rejection of another settlement's building.
 
-## Uniform Tile grid presentation update
+Source-side results for this slice: **11 passed, 0 failed**, using actual NUnit assertions with Unity's bundled Mono compiler/runtime outside the Editor. The clean-edge test confirms exactly **400 -> 427**, with only X = 20..22 / Z = 5..13 newly claimed. Domain and Unity presentation/Editor source compilation against installed Unity 6000.6.4f1, URP, and Input System assemblies also passed.
 
-The original ground code already used one-unit logical spacing and had no intentional 4 x 4, 5 x 5, or every-N-Tile major lines. It exposed thin inset gaps over a separate backing surface. Those small gaps can resolve unevenly at an angled camera view and different zoom levels; without a captured render, the precise cause of the reported stronger grouping is not confirmed.
+The known Unity licensing/sandbox limitation prevents reliable automated Editor execution. It was not repeatedly retried, and licensing/security configuration was not changed. Source compilation and external NUnit execution do not verify Editor import, rendered previews, Play Mode interaction, or player builds. Complete the import, Editor Test Runner, and manual checks above in the normal Editor. New test metadata must be generated there before a future commit.
 
-The updated renderer fills each Tile and draws explicit equal-width strips along every integer boundary, using the same spacing and line material across territory, Wilderness, and the Town Hall footprint. There are no secondary grid divisions. The Town Hall remains a separate building state covering X/Z 7..11, with 25 highlighted cells; only its visual marker was reduced to leave grid boundaries visible. Forest decoration remains lightweight and presentation-only.
+## Prototype limitations
 
-**Do not regenerate the existing scene or materials.** Exit Play Mode, allow the changed script to compile, then re-enter Play Mode in SettlementPrototype. All grid geometry and primitive markers are rebuilt at startup using the scene's existing material references. The existing setup command also creates future scenes using this updated runtime view without any setup-code changes.
-
-Count 20 individual cells along both settlement axes and 5 along both footprint axes. Check equal spacing/line treatment across all ground categories, pan/zoom readability, unchanged debug counts (400 and 25), and compact trees. At very distant zoom, subpixel lines still require visual inspection at your Game View resolution; zoom closer when counting cells. No camera controls, domain state, scene/material assets, or approved design rules changed.
+Houses complete instantly without construction, costs, workers, residents, upgrades, or demolition. There is no world persistence, profile/world integration, physical player, rotation UI, final UI/art, or world streaming. Materials remain simple Unlit placeholders; the debug panel is IMGUI and separate from the UI Toolkit menu. Successful placement rebuilds the finite ground mesh and decorative objects; very large chained settlements may require later targeted rendering optimization. Thin lines at distant zoom can become subpixel; zoom closer when counting individual cells. No final Town Hall level or undecided mechanics are inferred.
