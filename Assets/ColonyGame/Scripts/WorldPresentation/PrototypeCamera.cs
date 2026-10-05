@@ -7,6 +7,7 @@ namespace ColonyGame.Presentation
     public sealed class PrototypeCamera : MonoBehaviour
     {
         public System.Func<Vector2, bool> IsPointerOverUI { get; set; }
+        public System.Func<bool> IsKeyboardInputBlocked { get; set; }
         private Camera view;
         private Vector3 focus = new Vector3(10, 0, 10);
         private readonly Plane ground = new Plane(Vector3.up, Vector3.zero);
@@ -18,7 +19,7 @@ namespace ColonyGame.Presentation
         {
             var keys = Keyboard.current;
             var direction = Vector3.zero;
-            if (keys != null)
+            if (keys != null && !(IsKeyboardInputBlocked?.Invoke() ?? false))
             {
                 if (keys.wKey.isPressed || keys.upArrowKey.isPressed) direction.z += 1;
                 if (keys.sKey.isPressed || keys.downArrowKey.isPressed) direction.z -= 1;

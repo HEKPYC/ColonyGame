@@ -12,6 +12,13 @@ namespace ColonyGame.Presentation
         private readonly GameObject host;
         private readonly PanelSettings settings;
         private readonly VisualElement root;
+        private readonly PrototypeHelpState helpState = new PrototypeHelpState();
+        private readonly VisualElement helpPanel;
+        private readonly ScrollView helpScroll;
+        private readonly Button helpButton;
+        private int helpInputFrame = -1;
+        public bool HelpOpen => helpState.IsOpen;
+        public bool BlocksGameplayShortcuts => !helpState.AllowsGameplayShortcuts || helpInputFrame == Time.frameCount;
         private SettlementBootstrap bootstrap;
         private Action<Citizen> inspectCitizen;
         private VisualElement management;
@@ -64,6 +71,8 @@ namespace ColonyGame.Presentation
             Text(hud, "WASD: pan | Drag MMB | Wheel: zoom").style.fontSize = 11;
             buildButton = new Button(() => SetBuildListOpen(!BuildListOpen)) { text = "Build (B)" };
             hud.Add(buildButton);
+            helpButton = new Button(ToggleHelp) { text = "Help [H]" };
+            hud.Add(helpButton);
 
             buildList = Panel("build-list", column);
             buildList.style.flexShrink = 1;
@@ -102,6 +111,22 @@ namespace ColonyGame.Presentation
             citizenPanel.style.flexShrink = 1;
             citizenPanel.style.display = DisplayStyle.None;
             SetBuildListOpen(false);
+            helpPanel = Panel("help-hints", root);
+            helpPanel.style.position = Position.Absolute;
+            helpPanel.style.right = helpPanel.style.top = 12;
+            helpPanel.style.width = 420;
+            helpPanel.style.maxWidth = Length.Percent(90);
+            helpPanel.style.maxHeight = Length.Percent(90);
+            var title = Text(helpPanel, "Help & Hints");
+            title.style.fontSize = 19;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            helpScroll = new ScrollView(ScrollViewMode.Vertical);
+            helpScroll.style.flexShrink = 1;
+            helpScroll.style.minHeight = 0;
+            helpPanel.Add(helpScroll);
+            Text(helpPanel, "Prototype - mechanics and balance may change.").style.fontSize = 11;
+            helpPanel.Add(new Button(CloseHelp) { text = "Close (H / Escape)" });
+            helpPanel.style.display = DisplayStyle.None;
         }
 
         private VisualElement Panel(string name, VisualElement parent)
@@ -133,7 +158,7 @@ namespace ColonyGame.Presentation
         {
             if (open && !BuildListOpen) BuildListOpened?.Invoke();
             BuildListOpen = open;
-            buildList.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
+            buildList.style.display = open && !HelpOpen ? DisplayStyle.Flex : DisplayStyle.None;
             buildButton.text = open ? "Close list (B)" : "Build (B)";
         }
         public bool IsPointerOverUI(Vector2 screenPosition)
@@ -149,7 +174,7 @@ namespace ColonyGame.Presentation
         {
             RefreshManagement();
             counts.text = $"Claimed Tiles: {state.Territory.Count} | Buildings: {state.Buildings.Count}\nTown Hall Level: {state.TownHallLevel} (test override) | Wildlife: {wildlifeCount}\nCitizens: {citizenCount}\nWood: {bootstrap?.Resources.Amount(ResourceType.Wood) ?? 0}";
-            placement.style.display = definition == null ? DisplayStyle.None : DisplayStyle.Flex;
+            placement.style.display = definition == null || HelpOpen ? DisplayStyle.None : DisplayStyle.Flex;
             if (definition == null) return;
             var footprint = definition.GetFootprint(orientation);
             selection.text = $"{definition.DisplayName}\nFootprint: {footprint.Width} x {footprint.Depth}";
@@ -158,7 +183,7 @@ namespace ColonyGame.Presentation
         }
         public void ShowCitizen(Citizen citizen)
         {
-            citizenPanel.style.display = citizen == null ? DisplayStyle.None : DisplayStyle.Flex;
+            citizenPanel.style.display = citizen == null || HelpOpen ? DisplayStyle.None : DisplayStyle.Flex;
             if(citizen == null) return;
             var a=citizen.Attributes;
             citizenInfo.text=$"{citizen.FirstName}\nSex: {citizen.Sex} | Age: {citizen.Age}\nProfession: {citizen.Profession}\nWorkplace: {bootstrap?.WorkplaceName(citizen) ?? "None"}\nTask: {citizen.Task}\nStrength: {a.Strength}\nDexterity: {a.Dexterity}\nIntelligence: {a.Intelligence}\nEndurance: {a.Endurance}\nCharisma: {a.Charisma}";
@@ -166,6 +191,7 @@ namespace ColonyGame.Presentation
         public void BindBootstrap(SettlementBootstrap state,Action<Citizen> inspect)
         {
             bootstrap=state; inspectCitizen=inspect;
+            PopulateHelp(PrototypeHelpContent.Create(state.Settings,state.Settlement.TownHallLevel));
             management=Panel("building-management",root);
             management.style.position=Position.Absolute;
             management.style.right=12; management.style.top=12;
@@ -184,7 +210,7 @@ namespace ColonyGame.Presentation
         {
             managedBuilding=building; choosingWorker=false; rosterEmployment=-1;
             if(management==null) return;
-            management.style.display=building==null?DisplayStyle.None:DisplayStyle.Flex;
+            management.style.display=building==null||HelpOpen?DisplayStyle.None:DisplayStyle.Flex;
             if(building!=null) SetBuildListOpen(false);
             RefreshManagement();
         }
@@ -233,6 +259,57 @@ namespace ColonyGame.Presentation
                 }
                 if(roster.childCount==0) Text(roster,"No eligible unemployed adults.");
             }
+        }
+        private void PopulateHelp(IEnumerable<PrototypeHelpSection> sections)
+        {
+            helpScroll.Clear();
+            foreach(var section in sections)
+            {
+                var heading=Text(helpScroll,section.Title);
+                heading.style.unityFontStyleAndWeight=FontStyle.Bold;
+                heading.style.color=new Color(.5f,.85f,1f);
+                heading.style.marginTop=10;
+                heading.style.marginBottom=4;
+                foreach(var entry in section.Entries)
+                {
+                    var label=Text(helpScroll,entry);
+                    label.style.marginBottom=7;
+                }
+            }
+        }
+        public void ToggleHelp()
+        {
+            helpState.Toggle();
+            RefreshHelpVisibility();
+        }
+        public void CloseHelp()
+        {
+            helpState.Close();
+            RefreshHelpVisibility();
+        }
+        public bool HandleHelpKeys(bool toggle,bool escape)
+        {
+            if(!helpState.HandleKeys(toggle,escape)) return false;
+            RefreshHelpVisibility();
+            return true;
+        }
+        private void RefreshHelpVisibility()
+        {
+            // Same-frame guards also prevent a closing click/key leaking into gameplay.
+            helpInputFrame=pointerInputFrame=Time.frameCount;
+            helpPanel.style.display=HelpOpen?DisplayStyle.Flex:DisplayStyle.None;
+            helpButton.text=HelpOpen?"Close Help [H]":"Help [H]";
+            buildButton.SetEnabled(!HelpOpen);
+            buildList.style.display=BuildListOpen&&!HelpOpen?DisplayStyle.Flex:DisplayStyle.None;
+            if(HelpOpen)
+            {
+                placement.style.display=citizenPanel.style.display=DisplayStyle.None;
+                if(management!=null) management.style.display=DisplayStyle.None;
+                helpPanel.BringToFront();
+            }
+            else if(management!=null)
+                management.style.display=managedBuilding==null?DisplayStyle.None:DisplayStyle.Flex;
+            // Placement/citizen presentation is restored by the normal per-frame refresh.
         }
         public void Dispose()
         {

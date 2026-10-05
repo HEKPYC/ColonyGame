@@ -90,6 +90,7 @@ namespace ColonyGame.Presentation
             {
                 navigation.SetInspectionBounds(minX, minZ, maxX, maxZ);
                 navigation.IsPointerOverUI = hud.IsPointerOverUI;
+                navigation.IsKeyboardInputBlocked = () => hud.BlocksGameplayShortcuts;
             }
             CreateGround();
             foreach (var building in State.Buildings)
@@ -234,6 +235,10 @@ namespace ColonyGame.Presentation
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
+                hud.HandleHelpKeys(keyboard.hKey.wasPressedThisFrame, keyboard.escapeKey.wasPressedThisFrame);
+            }
+            if (keyboard != null && !hud.BlocksGameplayShortcuts)
+            {
                 if (keyboard.bKey.wasPressedThisFrame) hud.SetBuildListOpen(!hud.BuildListOpen);
                 if (keyboard.escapeKey.wasPressedThisFrame) { CancelPlacement(); SelectCitizen(null); hud.ShowBuilding(null); hud.SetBuildListOpen(false); }
                 if (selectedBuilding != null && keyboard.rKey.wasPressedThisFrame)
@@ -242,7 +247,7 @@ namespace ColonyGame.Presentation
                     RebuildPreview();
                 }
             }
-            if(keyboard!=null && keyboard.eKey.isPressed && selectedBuilding==null && !hud.BuildListOpen &&
+            if(!hud.BlocksGameplayShortcuts && keyboard!=null && keyboard.eKey.isPressed && selectedBuilding==null && !hud.BuildListOpen &&
                 hud.ManagedBuilding!=null && !hud.ManagedBuilding.IsCompleted)
             {
                 if(bootstrap.ContributeWork(hud.ManagedBuilding,ConstructionActor.Player,Time.deltaTime))
