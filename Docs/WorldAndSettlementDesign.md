@@ -97,6 +97,8 @@ The player should eventually have a persistent, understandable UI panel or HUD s
 
 - The maximum building level is **Level 4**.
 - Where levels apply, upgradeable buildings use **Levels 1 through 4**. Do not assume or implement Levels 5+.
+- A building's maximum level is capped by the **current Town Hall level**: Town Hall Levels 1, 2, 3, and 4 cap other buildings at Levels 1, 2, 3, and 4 respectively. This cap does not define upgrade costs or effects or imply every building is upgradeable.
+- Building unlock level and maximum building level are separate concepts (section 20). Farm unlocks at Town Hall Level 1 and can reach Level 1, 2, 3, or 4 as the Town Hall reaches those levels. Laboratory cannot exist before Town Hall Level 4 because its type unlocks only then.
 - This ceiling does not require inventing four sets of upgrade effects for every building. Undefined level behavior remains TBD.
 - The maximum physical footprint is reserved at initial placement. **Upgrades never increase the reserved footprint.**
 - Higher levels may change visuals, production, capacity, available functionality, progression capability, or other building-specific properties only as those effects are designed.
@@ -278,26 +280,33 @@ Builder, Courier, Cook, Miner, Lumberjack, Farmer, Fisher, Butcher, Warrior (Swo
 
 Citizens may also have no profession. Profession is an assignment/state associated with an existing citizen, not the citizen's underlying identity. Approval of these names does not imply their complete behavior has been designed or implemented.
 
-## 20. Buildings and reserved footprints
+## 20. Building unlock progression and reserved footprints
 
-**Approved reserved footprints**
+**Approved building unlock progression through Town Hall Level 4**
 
-| Building / complex | Maximum reserved footprint in Tiles | Associated profession/category where specified |
-| --- | --- | --- |
-| Town Hall | 5 x 5 | Not specified |
-| Builder's Hut | 3 x 3 | Builder |
-| House | 3 x 3 | Not specified |
-| Warehouse | 4 x 4 | Courier (planned) |
-| Tavern | 4 x 5 | Cook |
-| Mine | 4 x 4 | Miner |
-| Lumber Mill | 5 x 5 | Lumberjack |
-| Farm | 3 x 4 | Farmer |
-| Fisherman's Hut | 3 x 5 | Fisher |
-| Butcher | 3 x 6 | Butcher |
-| Barracks | 3 x 5 | Warrior |
-| Guard Tower | 2 x 2 | Warrior dispatch is planned; staffing is TBD |
-| Laboratory | 6 x 6 | Scientist |
-| Mage Tower complex | 5 x 5 | Mage |
+The Town Hall is the starting settlement building, with a **5 x 5 Tile** reserved footprint. It exists from settlement creation and is not part of the normal build-menu unlock list.
+
+| Required Town Hall level | Newly unlocked building / site | Maximum reserved footprint in Tiles | Associated profession/category where specified |
+| --- | --- | --- | --- |
+| 1 | Builder's Hut | 3 x 3 | Builder |
+| 1 | House | 3 x 3 | Not specified |
+| 1 | Farm | 3 x 4 | Farmer |
+| 2 | Tavern | 4 x 5 | Cook |
+| 2 | Butcher | 3 x 6 | Butcher |
+| 2 | Fisherman's Hut | 3 x 5 | Fisher |
+| 2 | Guard Tower | 2 x 2 | Warrior dispatch is planned; staffing is TBD |
+| 3 | Warehouse | 4 x 4 | Courier (planned) |
+| 3 | Lumber Mill | 5 x 5 | Lumberjack |
+| 3 | Mine | 4 x 4 | Miner |
+| 3 | Barracks | 3 x 5 | Warrior |
+| 4 | Laboratory | 6 x 6 | Scientist |
+| 4 | Mage Tower + Place of Power | Shared 5 x 5 site | Mage |
+
+A building type becomes available when the Town Hall reaches its required level. **Unlocks are cumulative**: Level 1 provides the initial three building types; Level 2 retains those and adds its four types; Level 3 retains all previous types and adds its four types; Level 4 makes all currently designed build-menu types available. No Town Hall Level 5+ content is currently designed; do not invent it.
+
+The Mage Tower and its Place of Power occupy the same overall **5 x 5 reserved building footprint/site**. The Place of Power belongs to the Mage Tower site and is not separately placeable. Only the Mage Tower itself visually changes as the building progresses/upgrades; the Place of Power remains part of that same site (section 29).
+
+This is the single approved building-type unlock list. Building-level caps are defined separately in section 6 and do not replace unlock requirements. Costs, construction times, Town Hall upgrade quest requirements, worker counts, building limits, prerequisites between individual buildings, and unspecified upgrade effects remain TBD unless already explicitly approved elsewhere. Do not invent additional buildings or prerequisites.
 
 Reserve the entire maximum footprint from initial placement. Upgrades never enlarge it.
 
@@ -334,7 +343,9 @@ Purely decorative paths or worn trails may potentially exist as future visual pr
 
 Town Hall upgrades are not simply instant purchases. They involve an associated quest chain. After the relevant quest progression is completed, the Town Hall itself is upgraded through construction.
 
-**TBD**: quests, quest requirements, upgrade costs, construction times, and level-specific unlocks.
+Building-type unlocks through Town Hall Level 4 are approved in section 20. The current design is limited to Town Hall Levels 1 through 4; no Level 5+ content is defined.
+
+**TBD**: quests, quest requirements, upgrade costs, construction times, and other unspecified level-specific effects.
 
 ## 22. Builder's Hut
 
@@ -413,7 +424,7 @@ Courier resource transportation/distribution must not depend on a constructed ro
 11. The Builder constructs the Builder's Hut.
 12. Initial completion applies the universal influence rule once. Later upgrades do not reapply influence, and claimed Tiles remain permanent after demolition/destruction.
 13. Further construction/progression depends on Builder's Hut capability.
-14. Builder's Hut maximum level is limited by Town Hall level.
+14. Other buildings' maximum levels are capped by Town Hall level (section 6). Building types unlock cumulatively at the Town Hall levels listed in section 20.
 15. Later Town Hall upgrades require quest-chain progression followed by construction.
 
 Starting quantities, exact citizen count beyond the minimum, construction costs, and the detailed transition from bootstrap construction to hut-dependent progression remain TBD. Existing profile selection currently leads to a placeholder; this design does not change it.
@@ -462,6 +473,7 @@ Farm unlock levels and cycle durations are approved in section 8; they are not o
 ### Buildings
 
 - Exact construction and upgrade costs, exact construction times, and undefined level-specific benefits.
+- Worker counts, building-count limits, and prerequisites between individual buildings remain TBD unless explicitly approved elsewhere. Do not invent them from the unlock table.
 - Which buildings are upgradeable where applicability has not been specified.
 - House citizen/family capacity and housing requirements; Warehouse and Barracks capacities.
 - Farm additional benefits, visuals, and field presentation; Lumber Mill functionality; Mine progression and resource visuals; Fisherman's Hut progression.
@@ -472,7 +484,7 @@ Farm unlock levels and cycle durations are approved in section 8; they are not o
 
 ### Town Hall
 
-- Exact quest chains, quest requirements, upgrade requirements/costs, construction times, and progression unlocks.
+- Exact quest chains, quest requirements, upgrade requirements/costs, construction times, and other progression unlocks not explicitly approved elsewhere. Building-type unlock levels through Town Hall Level 4 are approved in section 20 and are not TBD. No Level 5+ content is defined.
 
 ### Citizens
 
