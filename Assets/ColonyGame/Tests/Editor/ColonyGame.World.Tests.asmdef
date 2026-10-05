@@ -1,0 +1,7 @@
+﻿{
+  "name": "ColonyGame.World.Tests",
+  "rootNamespace": "ColonyGame.World.Tests",
+  "references": ["ColonyGame.World"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
