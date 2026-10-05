@@ -15,6 +15,7 @@ The catalog still offers 13 previews with cumulative 3/7/11/13 availability at T
 | `Assets/ColonyGame/World/SettlementBootstrap.cs` | Central prototype balance, extensible ResourceType/ResourceInventory transactions, storage identity, first-Hut start/work/completion, authoritative workplace assignment and live roster queries. |
 | `Assets/ColonyGame/World/AmbientWoodGathering.cs` | Task-specific boundary area, seeded/injectable random source, outbound/gather/return tasks and arrival-only delivery. |
 | `Assets/ColonyGame/World/SettlementState.cs` | Claimed Tile set, occupancy, oriented buildings, construction state/progress and one-time influence. |
+| `Assets/ColonyGame/World/PlayerInteraction.cs` | Central context-sensitive player intent: selected target, available action, discrete press, continuous hold and suppression. |
 | `Assets/ColonyGame/World/Citizen.cs` | Immutable identity/attributes, mutable profession/workplace and current task separate from movement. |
 | `Assets/ColonyGame/World/CitizenSimulation.cs` | Ordinary walking and safety/recovery; task controller can own authorized movement without changing idle eligibility. |
 | `Assets/ColonyGame/World/CitizenNavigation.cs` | Shared cardinal routing and weighted recovery searches. |
@@ -75,7 +76,7 @@ Expansion evacuation has priority: claiming underneath an animal starts continuo
 
 Blueprint/Planned -> Under Construction -> Completed is the shared lifecycle. The current preview is an unpersisted blueprint; Town Hall starts Completed. Confirming a valid first Hut with sufficient stock immediately consumes **20 Wood once** and reserves all oriented **3 x 3** footprint cells, including its entrance/perimeter. Repeated input cannot create a second first Hut or charge again. It appears as foundation/posts/frame rather than a completed building. Influence is zero until completion.
 
-Select the site and **hold E**. The adapter passes active player work to the plain-C# contribution API; no fake player model/controller exists. The panel shows progress and remaining active seconds. Releasing E, closing/deselecting, opening Build or pressing Escape freezes stored progress. **15 active seconds + any pause + 15 active seconds** completes the 30-second requirement. Excess work is capped; later calls cannot complete or apply influence again.
+Select the site and **hold E (Interact / Action)**. This construction context uses the continuous form of universal interaction. The adapter passes active player work to the plain-C# contribution API; no fake player model/controller exists. The panel shows progress and remaining active seconds. Releasing E, closing/deselecting, opening Build or pressing Escape freezes stored progress. **15 active seconds + any pause + 15 active seconds** completes the 30-second requirement. Excess work is capped; later calls cannot complete or apply influence again.
 
 Completion switches visuals and applies only individual footprint-plus-3 Tiles once. For origin **(17,8)**, claims go **400 -> 427**, adding only X 20..22/Z 5..13; (20,4), (20,14), (23,8) remain Wilderness. Citizen connectivity and wildlife evacuation reconcile immediately. Starting Hall remains exempt, including repeated influence calls. Footprints remain normal outdoor obstacles; the exterior entrance is not reserved or an additional general placement requirement.
 
@@ -87,6 +88,33 @@ Future physical player interaction, range/tool requirements, manual resource tra
 
 Before Warehouse, Town Hall stores resources. After the first completed Warehouse, it will become the primary storage/logistics center; transfer behavior, Courier automation, capacities and delivery priorities remain TBD. All normal later construction belongs to assigned Builder NPCs. Final costs/durations, worker limits, construction range, upgrades, cancellation/refunds, final cadence and polished UI/art remain TBD. There are no functional professions beyond Builder, other resources/production, families/children, needs, relationships, day/night, interiors, predators/combat, quests, upgrades, demolition, roads, streaming, saving or player inventory.
 
+## Universal player interaction
+
+**E = Interact / Action**, the canonical context-sensitive player intent rather than a dedicated construction key. One plain-C# PlayerInteraction owns the selected building/citizen target, derives the available interaction from current state, and receives press/hold intent through one keyboard adapter in SettlementPrototypeView. No unrelated system checks E independently. Future physical-player target resolution can use the same path; no player model, distance/tool checks, dialogue, storage logistics or item interactions are added now.
+
+| Selected valid context | Input | Current result |
+| --- | --- | --- |
+| Town Hall | Press E | Open settlement management. |
+| Completed Builder's Hut | Press E | Open workplace management; assignment still needs Assign Worker and an explicit citizen choice. |
+| Citizen | Press E | Show existing citizen information without changing identity or employment. |
+| Incomplete first Builder's Hut | Hold E | Contribute active manual work through the existing construction API. |
+| No target / unsupported future building | E | No action. |
+
+Discrete contexts use the press edge, not repeated held frames. Construction consumes held time; press-only intent without hold does not add work. Release freezes accumulated progress. On completion the available action becomes workplace management, and continuing the same hold neither repeats completion nor automatically opens/assigns a worker.
+
+Existing left-click inspection remains available. The prototype uses the selected target, without physical range requirements. Closing building management preserves the target; a fresh E press reopens it. Closing a construction panel stops an existing held action until a fresh E press or mouse selection reopens it. Opening Help preserves the target but suppresses all E intent, including the closing Help frame. Placement/Build mode also suppresses interaction. Pointer guards still prevent selection or placement underneath visible panels.
+
+Future citizen dialogue/quests and other approved physical-player interactions will extend this same primary action. They are not currently available.
+
+Manual interaction checks:
+
+1. Click Town Hall, close its panel, then press E: management reopens. Holding E thereafter must not repeatedly recreate the panel or change resources/territory.
+2. Click a completed Hut, close management, then press E. Confirm no citizen is automatically assigned; use Assign Worker and choose a specific citizen. Press E again and verify the assigned worker remains unchanged.
+3. Click each citizen and press E. Verify existing information and unchanged ID/name/sex/age/attributes/profession. Mouse inspection must still work normally.
+4. Select an incomplete first Hut and hold E. Confirm continuous work, interruption/resume, exactly one completion/influence, then a new E press opens workplace management. Continuing the completing hold must not assign anyone.
+5. Close the incomplete site's panel while holding E: work stops. Release and press E again to reopen/resume. Open Help and press/hold E in each context: no interaction or work. H/Escape close Help without clearing the target or contributing work on that closing frame.
+6. With Build/placement active, press E: no interaction/assignment/work. Retest rotation, mouse placement, UI click-through guards and contextual Escape. No scene regeneration is required.
+
 ## Help & Hints
 
 Press **H** or click the compact **Help [H]** HUD button to toggle the same Help state. **Escape** while Help is open closes only Help; the panel also has a **Close** button. H/Escape are consumed on the closing frame so they cannot also cancel placement or trigger a gameplay shortcut. Help starts closed.
@@ -95,13 +123,13 @@ The runtime UI Toolkit overlay uses the existing prototype styling, a readable t
 
 Sections: **Start Here** (prominent Town Hall and first-Hut hints), **Controls**, **Gameplay / Prototype Balance**, **Building**, the four **Town Hall newly unlocked building groups**, **Citizens**, and **Wildlife**. Balance values come from BootstrapSettings; names/footprints/unlocks come from BuildingCatalog. The reference describes only current functionality, including the Level 4 TEST OVERRIDE and deferred subsequent construction. It does not imply Town Hall upgrades or future systems are implemented.
 
-Documented controls are the actual source controls: WASD/arrow camera movement, middle-drag pan, wheel zoom, left-click contextual selection/placement, B Build toggle, R quarter-turn rotation, E held first-Hut work, H Help toggle, and contextual Escape. While Help is open, B/R/E and keyboard camera movement are blocked. Citizen/wildlife/gathering simulation continues at its usual rate; there is no time-scale or pause change. Manual work requires its active input, so Help suppresses E contributions while preserving accumulated construction progress.
+Documented controls are the actual source controls: WASD/arrow camera movement, middle-drag pan, wheel zoom, left-click contextual selection/placement, B Build toggle, R quarter-turn rotation, E universal/context-sensitive Interact / Action (press for inspection/management, hold for first-Hut work), H Help toggle, and contextual Escape. While Help is open, B/R/E and keyboard camera movement are blocked. Citizen/wildlife/gathering simulation continues at its usual rate; there is no time-scale or pause change. Manual work requires its active input, so Help suppresses E contributions while preserving accumulated construction progress.
 
 Opening Help temporarily hides Build/placement/citizen/building inspection panels without clearing their underlying state, selected citizen, managed building, worker-choice state, or placement orientation. Closing restores the applicable panels. The compact HUD remains available; Build is disabled while Help is open. The Help state/content class has no Unity rendering or simulation ownership; content is rendered as individual sections rather than a giant input-handler text blob.
 
 Manual Help checks:
 
-1. Let Unity import PrototypeHelp.cs and PrototypeHelpStateTests.cs and generate their `.meta` files. Run all 109 World EditMode tests; no scene regeneration is required.
+1. Let Unity import PrototypeHelp.cs and PrototypeHelpStateTests.cs and generate their `.meta` files. Run all 117 World EditMode tests; no scene regeneration is required.
 2. Enter SettlementPrototype: Help is initially closed and **Help [H]** is visible. Open/close with H and the button; open then close using Escape and Close. Confirm Escape closes Help without clearing a prior placement or inspection.
 3. Scroll through every section. Verify actual controls, Town Hall roster/storage hint, first-Hut sequence, prototype values, cumulative Level 1-4 unlock groups/footprints, Level 4 test label, citizen and wildlife rules. Check readability and access to Close at normal and smaller window sizes.
 4. Over the panel, scroll at both content ends: the camera must not zoom. Middle-drag must not pan; clicks on title/content/padding/Close must not select citizens/buildings or place beneath it. Transparent outside space should remain usable.
@@ -111,11 +139,11 @@ Manual Help checks:
 
 ## Validation and manual Unity acceptance
 
-Source validation uses Unity's bundled compiler/runtime and installed NUnit. The 72 existing territory/catalog/placement/wildlife/citizen/entrance/recovery tests remain unchanged. Added SettlementBootstrapTests and CitizenWildlifeFleeTests cover resource retry/overflow/negative checks, first-Hut placement/work/influence, explicit identity-preserving employment/live roster, gathering authorization/boundary/arrival-only delivery/random injection/recovery, and citizen-triggered wildlife safety/evacuation. **109 NUnit tests passed, 0 failed (104 existing + 5 Help-state tests)**. The new presentation-state tests cover initial state, shared toggle/key consumption, contextual Escape, simultaneous-key priority and unchanged settlement/citizen/construction state. Static content strings and pixel positions are not tested. Domain, Unity presentation/Editor source, and the separate test assembly compile without compiler warnings or errors against installed Unity 6000.6.4f1 assemblies. `git diff --check` passes; this does not establish Editor import or Play Mode visual correctness.
+Source validation uses Unity's bundled compiler/runtime and installed NUnit. The 72 existing territory/catalog/placement/wildlife/citizen/entrance/recovery tests remain unchanged. Added SettlementBootstrapTests and CitizenWildlifeFleeTests cover resource retry/overflow/negative checks, first-Hut placement/work/influence, explicit identity-preserving employment/live roster, gathering authorization/boundary/arrival-only delivery/random injection/recovery, and citizen-triggered wildlife safety/evacuation. **117 NUnit tests passed, 0 failed (109 existing + 8 interaction tests)**. PlayerInteractionTests cover press versus hold, Town Hall/workplace/citizen contexts, completion context changes, suppression, explicit assignment and unrelated-state preservation. The new presentation-state tests cover initial state, shared toggle/key consumption, contextual Escape, simultaneous-key priority and unchanged settlement/citizen/construction state. Static content strings and pixel positions are not tested. Domain, Unity presentation/Editor source, and the separate test assembly compile without compiler warnings or errors against installed Unity 6000.6.4f1 assemblies. `git diff --check` passes; this does not establish Editor import or Play Mode visual correctness.
 
 The known Editor licensing/sandbox limitation remains; licensing/security settings are unchanged. Use the normal Editor:
 
-1. Exit Play Mode, allow import/compilation, and let Unity generate `.meta` files for the two new Help source/test files. Retain these before any later commit. Do not regenerate the existing scene/materials. Run all World EditMode tests in Test Runner and check Console.
+1. Exit Play Mode, allow import/compilation, and let Unity generate `.meta` files for the new PlayerInteraction source/test files. Retain these before any later commit. Do not regenerate the existing scene/materials. Run all World EditMode tests in Test Runner and check Console.
 2. Open SettlementPrototype and enter Play Mode. Confirm Wood **10**, 400 claims, one completed Hall, four unemployed adults, and TH Level **4 TEST OVERRIDE**. Click Town Hall: total 4/employed 0/unemployed 4, storage Town Hall, four unique complete roster entries. Click each roster row and each world figure; compare all five actual attributes and name/sex/age.
 3. Observe staggered trips: walking into Wilderness, short pause, visible return, then **+2** only at Hall access on success; failure gives +0. Inspect citizen Task in the detail panel. Ordinary citizens between trips remain claimed-only. Trip destinations stay within the actual 10-Tile boundary depth; decorative trees remain intact. Wait for Wood to reach at least **20**.
 4. Observe wildlife near gathering citizens. Confirm all four species can interrupt pauses/walks, run away/deeper at the faster speed, avoid claims, and resume wandering after safety. Check for position jumps or ordinary emergency warnings.

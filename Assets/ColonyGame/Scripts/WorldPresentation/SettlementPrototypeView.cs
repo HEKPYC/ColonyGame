@@ -26,7 +26,8 @@ namespace ColonyGame.Presentation
         private SettlementBootstrap bootstrap;
         private CitizenSimulation citizens;
         private CitizenView citizenView;
-        private Citizen selectedCitizen;
+        private PlayerInteraction playerInteraction;
+        private Citizen selectedCitizen => playerInteraction?.CitizenTarget;
         private PrototypePalette palette;
         private Material[] tileMaterials;
         private PeacefulWildernessHabitat wildlifeHabitat;
@@ -70,6 +71,7 @@ namespace ColonyGame.Presentation
             citizenView = new CitizenView(transform, citizens, palette);
             bootstrap = new SettlementBootstrap(State,citizens,bootstrapSettings);
             citizens.Gathering = new AmbientWoodGathering(bootstrap);
+            playerInteraction = new PlayerInteraction(bootstrap);
             hud.BindBootstrap(bootstrap,SelectCitizen);
             Debug.Log("Building prototype: temporary Town Hall Level 4; B toggles build menu; R rotates; left click places; Escape cancels.", this);
         }
@@ -215,10 +217,47 @@ namespace ColonyGame.Presentation
         }
         private void SelectCitizen(Citizen citizen)
         {
-            selectedCitizen = citizen;
+            playerInteraction?.SelectCitizen(citizen);
             if (citizen != null) hud.SetBuildListOpen(false);
             hud.ShowCitizen(citizen);
             citizenView?.Sync(citizen);
+        }
+        private void SelectInteractionBuilding(BuildingState building)
+        {
+            playerInteraction.SelectBuilding(building);
+            hud.ShowCitizen(null);
+            hud.ShowBuilding(building);
+            citizenView?.Sync(null);
+        }
+        private void UpdatePlayerInteraction(Keyboard keyboard)
+        {
+            if(keyboard==null) return;
+            bool pressed=keyboard.eKey.wasPressedThisFrame;
+            bool blocked=hud.BlocksGameplayShortcuts||selectedBuilding!=null||hud.BuildListOpen;
+            // A new press may reopen a selected site's panel; closing it stops an existing hold.
+            if(!blocked&&pressed&&playerInteraction.AvailableInteraction==PlayerInteractionType.ManualConstruction&&
+                hud.ManagedBuilding!=playerInteraction.BuildingTarget)
+                hud.ShowBuilding(playerInteraction.BuildingTarget);
+            if(playerInteraction.AvailableInteraction==PlayerInteractionType.ManualConstruction&&
+                hud.ManagedBuilding!=playerInteraction.BuildingTarget) blocked=true;
+            var result=playerInteraction.Act(pressed,keyboard.eKey.isPressed,Time.deltaTime,blocked);
+            switch(result.Type)
+            {
+                case PlayerInteractionType.TownHallManagement:
+                case PlayerInteractionType.WorkplaceManagement:
+                    if(hud.ManagedBuilding!=playerInteraction.BuildingTarget) hud.ShowBuilding(playerInteraction.BuildingTarget);
+                    break;
+                case PlayerInteractionType.CitizenInformation:
+                    hud.ShowCitizen(playerInteraction.CitizenTarget);
+                    break;
+                case PlayerInteractionType.ManualConstruction:
+                    if(result.ConstructionCompleted)
+                    {
+                        RefreshPresentation();
+                        hud.ShowBuilding(playerInteraction.BuildingTarget);
+                    }
+                    break;
+            }
         }
         private void CancelPlacement()
         {
@@ -247,15 +286,7 @@ namespace ColonyGame.Presentation
                     RebuildPreview();
                 }
             }
-            if(!hud.BlocksGameplayShortcuts && keyboard!=null && keyboard.eKey.isPressed && selectedBuilding==null && !hud.BuildListOpen &&
-                hud.ManagedBuilding!=null && !hud.ManagedBuilding.IsCompleted)
-            {
-                if(bootstrap.ContributeWork(hud.ManagedBuilding,ConstructionActor.Player,Time.deltaTime))
-                {
-                    RefreshPresentation();
-                    hud.ShowBuilding(hud.ManagedBuilding);
-                }
-            }
+            UpdatePlayerInteraction(keyboard);
             var mouse = Mouse.current;
             var camera = Camera.main;
             hasCursorTile = false;
@@ -275,7 +306,7 @@ namespace ColonyGame.Presentation
                         bootstrap.TryStartFirstHut(cursorTile, orientationDegrees, out var newSite))
                     {
                         RefreshPresentation();
-                        CancelPlacement(); hud.ShowBuilding(newSite);
+                        CancelPlacement(); SelectInteractionBuilding(newSite);
                     }
                 }
             }
@@ -295,7 +326,7 @@ namespace ColonyGame.Presentation
                         {
                             var local=transform.InverseTransformPoint(ray.GetPoint(distance));
                             var tile=new TileCoordinate(Mathf.FloorToInt(local.x),Mathf.FloorToInt(local.z));
-                            hud.ShowBuilding(State.Buildings.FirstOrDefault(b=>b.OccupiedTiles.Contains(tile)));
+                            SelectInteractionBuilding(State.Buildings.FirstOrDefault(b=>b.OccupiedTiles.Contains(tile)));
                         }
                     }
                 }
