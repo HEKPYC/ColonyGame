@@ -10,7 +10,7 @@ namespace ColonyGame.World.Tests
         private static Citizen Adult(CitizenPosition position)=>new Citizen("access-test","Robin",CitizenSex.Male,25,new CitizenAttributes(5,5,5,5,5),position);
         private static SettlementState ThreeHuts()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             foreach(var origin in new[]{new TileCoordinate(1,1),new TileCoordinate(4,2),new TileCoordinate(2,5)})
                 Assert.That(state.TryPlacePrototypeBuilding(BuildingType.BuildersHut,origin,0,out _),Is.True);
             return state;
@@ -44,7 +44,7 @@ namespace ColonyGame.World.Tests
             var access=new[]{new TileCoordinate(5,3),new TileCoordinate(3,5),new TileCoordinate(5,8),new TileCoordinate(8,5)};
             for(int i=0;i<4;i++)
             {
-                var state=SettlementState.CreatePrototype();
+                var state=SettlementState.CreatePrototype(4);
                 Assert.That(state.TryPlacePrototypeBuilding(BuildingType.Farm,new TileCoordinate(4,4),i*90,out var building),Is.True);
                 Assert.That(building.Entrance.FootprintTile,Is.EqualTo(tiles[i]));
                 Assert.That(building.Entrance.Facing,Is.EqualTo(faces[i]));
@@ -54,7 +54,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void ExteriorAccessIsNotReservedOrRequiredByPlacementValidation()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(1,1),0,out var house);
             Assert.That(house.Entrance.ExteriorTile,Is.EqualTo(new TileCoordinate(2,0)));
             Assert.That(house.OccupiedTiles.Contains(house.Entrance.ExteriorTile),Is.False);
@@ -66,7 +66,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void EntranceAndAllPerimeterTilesRemainOrdinaryNavigationObstacles()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.Farm,new TileCoordinate(4,4),90,out var building);
             var policy=new SettlementIdleMovementPolicy(state);
             Assert.That(building.OccupiedTiles.All(t=>!policy.CanOccupy(CitizenPosition.Center(t))),Is.True);
@@ -139,7 +139,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void DirectFootprintRecoveryPrefersEntranceWhenCrossingCostsTie()
         {
-            var state=SettlementState.CreatePrototype();var policy=new SettlementIdleMovementPolicy(state);
+            var state=SettlementState.CreatePrototype(4);var policy=new SettlementIdleMovementPolicy(state);
             var c=Adult(new CitizenPosition(4.5,4.5));var simulation=new CitizenSimulation(policy,new[]{c});
             state.TryPlacePrototypeBuilding(BuildingType.BuildersHut,new TileCoordinate(3,3),0,out var hut);
             simulation.ReconcileBuildings();
@@ -167,7 +167,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void BlockedTownHallAccessUsesDeterministicConnectedAnchor()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(8,4),0,out _);
             Assert.That(state.TownHall.Entrance.IsExteriorAccessible(state),Is.False);
             var one=new SettlementIdleMovementPolicy(state);var two=new SettlementIdleMovementPolicy(state);

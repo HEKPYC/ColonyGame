@@ -23,7 +23,7 @@ This document does not authorize gameplay implementation. It does not change the
 
 **Approved future player role**: the player physically participates in colony management, direct world interaction, exploration, manual resource transport, and quests. Future examples include taking resources from Town Hall/Warehouse, carrying/delivering to NPCs/sites, talking to citizens, personally catching fish, and performing world objectives. Quests may require talking to N/specific citizens, catching N fish, deliveries, and world interactions. No physical Player Controller/model, inventory, tools, carrying, dialogue, fishing, or quests are implemented in this slice. Player-provided construction work is a domain operation with a replaceable prototype input adapter.
 
-**Approved primary player control**: **E = Interact / Action**, one universal/context-sensitive player intent rather than separate keys for every activity. Press triggers discrete interactions; hold provides continuous interaction where appropriate. The current prototype operates on the selected valid target: Town Hall management, completed Builder's Hut workplace management, citizen information, or held manual construction work on the first Hut site. Existing mouse inspection remains available. Workplace interaction never automatically assigns a citizen; assignment requires an explicit choice. Help and placement input priority suppress world interaction. Future physical-player targeting, dialogue/citizen quests, storage, items, fishing and quest objects will extend this action; those systems are not implemented now. Physical range requirements remain deferred until a Player Controller exists.
+**Approved primary player control**: **E = Interact / Action**, one universal/context-sensitive player intent rather than separate keys for every activity. Press triggers discrete interactions; hold provides continuous interaction where appropriate. The current prototype operates on the selected valid target: Town Hall management, completed building/workplace management, citizen information, or held manual construction work on an initial L1 Hut site. Existing mouse inspection remains available. Workplace interaction never automatically assigns a citizen; assignment requires an explicit choice. Help and placement input priority suppress world interaction. Future physical-player targeting, dialogue/citizen quests, storage, items, fishing and quest objects will extend this action; those systems are not implemented now. Physical range requirements remain deferred until a Player Controller exists.
 
 **Planned future presentation**: a fully 3D settlement that the player can explore directly, potentially switching between first-person and third-person perspectives. Specific controls and switching behavior are TBD.
 
@@ -35,7 +35,7 @@ This document does not authorize gameplay implementation. It does not change the
 - The player may physically move only inside claimed Settlement Territory.
 - Idle citizens wander only inside claimed Settlement Territory. Specific future tasks/professions may authorize Wilderness travel; ordinary idle wandering does not grant that permission.
 - Citizens on authorized Wilderness trips must never travel farther than **10 Tiles beyond the current settlement boundary**.
-- Building footprints are obstacles for normal outdoor citizen movement, including their perimeter Tiles. Buildings have defined entrances/access points for citizen interaction. Citizens approach an adjacent exterior access Tile and use an explicit entrance transition rather than treating the footprint as walkable outdoor space. The exterior access Tile is separate from the reserved footprint and normally must be claimed and unoccupied. Actual building entry/exit and interiors remain future systems.
+- Building footprints are obstacles for normal outdoor citizen movement, including their perimeter Tiles. Buildings have defined entrances/access points for citizen interaction. Citizens approach an adjacent exterior access Tile and use an explicit entrance transition rather than treating the footprint as walkable outdoor space. The exterior access Tile is separate from the reserved footprint and normally must be claimed and unoccupied. Logical residence entry/exit is implemented at night; rendered interiors remain future work.
 - A building may be placed only when its **entire reserved footprint** is already inside existing claimed Settlement Territory.
 - Placing a building partly or fully outside the territory to claim new land is prohibited.
 
@@ -55,7 +55,7 @@ The rule applies to every building type initially completed during gameplay. Pla
 
 **Upgrades never apply additional territory influence**: the footprint is unchanged and its original influence has already applied. Initial completion applies influence once; later upgrades apply none.
 
-**Claimed Settlement Territory is permanent under the current design.** Demolition or destruction of a building does not return its previously claimed Tiles to Wilderness and does not shrink territory. Future combat-related destruction follows this principle unless explicitly redesigned. Exact demolition costs, refunds, ruins, rebuilding, and destruction behavior remain TBD.
+**Claimed Settlement Territory is permanent under the current design.** Demolition or destruction of a building does not return its previously claimed Tiles to Wilderness and does not shrink territory. Future combat-related destruction follows this principle unless explicitly redesigned. Completed ordinary building demolition refunds floor(50%) of every actually invested resource (initial construction plus completed upgrades). Claims remain permanent. Ruins and combat destruction remain future work.
 
 Building influence areas may overlap without bonuses; already claimed Tiles simply remain claimed. Reserved building footprints must not overlap (section 20).
 
@@ -72,11 +72,11 @@ These examples add only previously unclaimed Tiles and do not turn irregular ter
 
 **Approved design / implemented now**: unemployed adult citizens occasionally make authorized Wilderness trips for small supplementary Wood income; no Lumberjack is required. Assigned Builders do not take ordinary ambient trips. Profession and current task are separate: Idle/Wandering, GatheringWoodOutbound, GatheringWood, ReturningWood, and Recovery.
 
-The visible loop is outbound travel, a gathering pause, one success roll, and a return to the Town Hall outdoor access area. Successful Wood is pending during return and deposited only on arrival. A failed trip returns normally with zero Wood. Ordinary wandering remains settlement-only. Recovery/safety takes priority, followed by returning pending Wood, mandatory assigned work, ambient gathering, and idle behavior. Mandatory Builder construction tasks are future work.
+The visible loop is outbound travel, a gathering pause, one success roll, and a return to the Town Hall outdoor access area. Successful Wood is pending during return and deposited only on arrival. A failed trip returns normally with zero Wood. Ordinary wandering remains settlement-only. Recovery/safety takes priority, followed by returning pending Wood, mandatory assigned work, ambient gathering, and idle behavior. Assigned Builder jobs are implemented and take priority over ambient/idle work; night return-home schedules stop new work.
 
-**Prototype balance**: start with 10 Wood; successful trip yields 2 Wood with 90% success; maximum Wilderness depth is 10 Tiles from the current actual irregular boundary. The implemented cardinal boundary distance and path eligibility are described in section 2. Destinations are reachable Wilderness cells, without requiring a rendered tree. Defaults: 3-second gathering pause, 18-32-second cooldown after return, staggered initial delays of 4/10/16/22 seconds, and at most two simultaneous trips. Current destination sampling prefers nearby reachable cells within depth 1-4, among the nearest 24 candidates. These configurable cadence choices are prototype tuning, not final balance.
+**Prototype balance**: start with 10 Wood; successful trip yields 3 Wood with 90% success; maximum Wilderness depth is 10 Tiles from the current actual irregular boundary. The implemented cardinal boundary distance and path eligibility are described in section 2. Destinations are reachable Wilderness cells, without requiring a rendered tree. Defaults: 3-second gathering pause, 18-32-second cooldown after return, staggered initial delays of 4/10/16/22 seconds, and at most two simultaneous trips. Current destination sampling prefers nearby reachable cells within depth 1-4, among the nearest 24 candidates. These configurable cadence choices are prototype tuning, not final balance.
 
-Early Wilderness is primarily forest. Decorative trees are not persistent harvest nodes; trips do not chop, destroy, reserve, or regenerate them. Newly claimed vegetation disappears visually, but territory expansion awards no resources. Lumber Mill + Lumberjack remains the future scalable Wood source; ambient income should eventually be economically insignificant.
+Early Wilderness is primarily forest. Decorative trees are not persistent harvest nodes; trips do not chop, destroy, reserve, or regenerate them. Newly claimed vegetation disappears visually, but territory expansion awards no resources. Lumber Mill + assigned Lumberjack is the implemented scalable Wood source; ambient income should eventually be economically insignificant.
 
 **TBD**: final gathering balance, physical carrying/animations, broader profession eligibility, and more advanced scheduling/interruption behavior. The old permission for the initial Builder to gather while idle is superseded by this milestone's unemployed-only rule.
 
@@ -86,73 +86,43 @@ Early Wilderness is primarily forest. Decorative trees are not persistent harves
 
 | Category | Resources |
 | --- | --- |
-| Materials | Wood, Stone, Metal, Wool |
+| Materials | Wood, Stone, Iron, Wool |
 | Food / agricultural resources | Beetroot, Wheat, Potato, Carrot, Fish, Meat |
 
 **Planned future system**: resource definitions should be data-driven and extensible. These resources are not an exhaustive permanent list; additional types may be approved later.
 
-The player should eventually have a persistent, understandable UI panel or HUD showing quantities of relevant/unlocked resources. Resource UI presentation is TBD; see section 31. Only Wood is functional now: the prototype starts with 10. Town Hall stores it before Warehouse; ambient trips deliver there and the first Hut consumes from that inventory. Other starting quantities and economic prices remain TBD.
+**Implemented**: one authoritative inventory supports all ten listed resources; Metal is replaced by Iron. Start with 10 Wood and zero other resources. Town Hall shows actual amounts when obtainable from a completed appropriately leveled producer (Wood always), otherwise "Requirements are not met yet". Warehouse does not duplicate totals; physical hauling/logistics remains future work. Recipes, cycles and generated costs are in [SettlementPrototype.md](SettlementPrototype.md).
 
 ## 6. Global building levels and reserved footprints
 
-**Approved design decisions**
+**Approved / implemented**
 
-- The maximum building level is **Level 4**.
-- Where levels apply, upgradeable buildings use **Levels 1 through 4**. Do not assume or implement Levels 5+.
-- A building's maximum level is capped by the **current Town Hall level**: Town Hall Levels 1, 2, 3, and 4 cap other buildings at Levels 1, 2, 3, and 4 respectively. This cap does not define upgrade costs or effects or imply every building is upgradeable.
-- Building unlock level and maximum building level are separate concepts (section 20). Farm unlocks at Town Hall Level 1 and can reach Level 1, 2, 3, or 4 as the Town Hall reaches those levels. Laboratory cannot exist before Town Hall Level 4 because its type unlocks only then.
-- This ceiling does not require inventing four sets of upgrade effects for every building. Undefined level behavior remains TBD.
-- The maximum physical footprint is reserved at initial placement. **Upgrades never increase the reserved footprint.**
-- Higher levels may change visuals, production, capacity, available functionality, progression capability, or other building-specific properties only as those effects are designed.
-
-Whether each individual building is upgradeable and its currently unspecified effects must not be inferred solely from the global level rule. Additional levels require explicit later approval.
+- Town Hall and all normal building types support Levels 1 through 5.
+- A normal building cannot exceed current Town Hall level. Unlock level and maximum building level are separate.
+- TH5 adds no new building type; it permits L5 upgrades, production/Builder progression and Town Hall capacity 8.
+- Reserve the maximum footprint initially; upgrades never enlarge it or repeat influence.
+- Undefined effects remain TBD. Do not invent TH6+ content.
 
 ## 7. Universal production progression
 
-**Approved design decisions**
+**Implemented**: a completed producer requires one explicitly assigned adult of the corresponding profession at valid access: Farm/Farmer, Lumber Mill/Lumberjack, Mine/Miner, Fisherman's Hut/Fisher, Butcher/Butcher. No automatic workers.
 
-Resource-producing buildings use this common model unless a later approved design explicitly defines an exception. It applies to the Farm, Lumber Mill, Mine, Fisherman's Hut, Butcher, and future production buildings unless explicitly overridden.
+Quantity per completed cycle = building level - resource unlock level + 1. Base cycle duration stays fixed. All unlocked products run independently/concurrently. Work occurs during Day after travel. Partial cycles persist overnight and during absence; output goes directly to the single inventory. Upgrades retain old capacity/output until completion. No inputs or physical delivery costs are invented.
 
-**Assigned workers are required for active scalable production.** Resource-producing buildings do not generate their normal scalable output merely because they exist. An appropriate citizen with the corresponding profession must be assigned:
-
-| Production building | Required corresponding profession |
-| --- | --- |
-| Farm | Farmer |
-| Lumber Mill | Lumberjack |
-| Mine | Miner |
-| Fisherman's Hut | Fisher |
-| Butcher | Butcher |
-
-Without an appropriate assigned worker, a building performs no normal scalable resource production. The formula describes an **active production process** and does not remove this requirement. Exact worker counts, extra workers from upgrades, efficiency/stat modifiers, work schedules, and absence behavior remain TBD.
-
-Each producible resource definition has at minimum:
-
-- Resource Type;
-- Resource Unlock Building Level;
-- Base Production Cycle Duration.
-
-Availability:
-
-`BuildingLevel >= ResourceUnlockLevel`
-
-For an available resource, after each completed production cycle:
-
-`ProductionAmount = BuildingLevel - ResourceUnlockLevel + 1`
-
-A resource starts at exactly **1 unit per cycle** at its unlock level; every subsequent building level adds **1 unit per cycle**. Below its unlock level it is unavailable; do not apply the amount formula as an available output.
-
-| Resource unlock level | Building L1 | Building L2 | Building L3 | Building L4 |
+| Product | Producer | Unlock level | Cycle seconds | L1 / L2 / L3 / L4 / L5 quantity |
 | --- | --- | --- | --- | --- |
-| 1 | 1 per cycle | 2 per cycle | 3 per cycle | 4 per cycle |
-| 2 | Unavailable | 1 per cycle | 2 per cycle | 3 per cycle |
-| 3 | Unavailable | Unavailable | 1 per cycle | 2 per cycle |
-| 4 | Unavailable | Unavailable | Unavailable | 1 per cycle |
+| Beetroot | Farm | 1 | 15 | 1 / 2 / 3 / 4 / 5 |
+| Wheat | Farm | 2 | 30 | - / 1 / 2 / 3 / 4 |
+| Potato | Farm | 3 | 45 | - / - / 1 / 2 / 3 |
+| Carrot | Farm | 4 | 60 | - / - / - / 1 / 2 |
+| Meat | Butcher | 1 | 30 | 1 / 2 / 3 / 4 / 5 |
+| Wool | Butcher | 2 | 45 | - / 1 / 2 / 3 / 4 |
+| Fish | Fisherman's Hut | 1 | 30 | 1 / 2 / 3 / 4 / 5 |
+| Wood | Lumber Mill | 1 | 30 | 1 / 2 / 3 / 4 / 5 |
+| Stone | Mine | 1 | 45 | 1 / 2 / 3 / 4 / 5 |
+| Iron | Mine | 4 | 60 | - / - / - / 1 / 2 |
 
-Building upgrades increase output per cycle. Building level **does not automatically reduce Base Production Cycle Duration**. Production definitions should eventually be data-driven rather than hardcoded separately into production systems.
-
-**Production scheduling remains TBD.** Multiple unlocked resources do not imply simultaneous production. For example, Farm Level 4 might later use concurrent crops, one selected crop, player priorities, Farmer-selected work, divided worker time, or another model; none of these options is approved.
-
-Production inputs, interrupted cycles, partial progress, storage blocking, worker travel time, offline/background production, pauses, upgrades during cycles, resource delivery, and output destinations remain TBD. The formula decides none of these mechanics or the unresolved worker details.
+**Future / TBD**: inputs, hauling, storage blocking/capacity, extra workers, non-Builder stat efficiency, priorities and offline production.
 
 ## 8. Farm
 
@@ -173,10 +143,11 @@ Approved production progression:
 | 2 | 2 / 15 seconds | 1 / 30 seconds | Unavailable | Unavailable |
 | 3 | 3 / 15 seconds | 2 / 30 seconds | 1 / 45 seconds | Unavailable |
 | 4 | 4 / 15 seconds | 3 / 30 seconds | 2 / 45 seconds | 1 / 60 seconds |
+| 5 | 5 / 15 seconds | 4 / 30 seconds | 3 / 45 seconds | 2 / 60 seconds |
 
-This follows the universal formula. The table states each available resource's output and cycle duration, without choosing how multiple product cycles are scheduled.
+All unlocked crops run concurrently under section 7.
 
-**TBD**: Farm upgrade costs, construction time, additional upgrade benefits, visual progression, and field presentation.
+Farm starts at 50 Wood and 6 minutes base work. Upgrade costs follow section 22/SettlementPrototype. Additional benefits and polished field visuals remain TBD.
 
 ## 9. Wood and Lumber Mill
 
@@ -186,15 +157,15 @@ The Lumber Mill becomes the primary scalable Wood source. Small ambient citizen 
 
 Lumber Mill Wood production uses the universal production progression model.
 
-**TBD**: Wood unlock level, Wood Base Production Cycle Duration, and Lumber Mill level-specific functionality. No values are to be invented.
+**Implemented**: Wood unlocks at Lumber Mill L1, 30-second cycle, output 1..5. Other functionality remains TBD.
 
 ## 10. Mine
 
 **Approved**: reserved footprint **4 x 4 Tiles**; associated profession **Miner**.
 
-Stone and Metal must not initially appear as ordinary visible deposits around the starting settlement. Their availability and environmental representation are introduced through Mine progression. Mine production uses the universal model.
+Stone and Iron must not initially appear as ordinary visible deposits around the starting settlement. Their availability and environmental representation are introduced through Mine progression. Mine production uses the universal model.
 
-**TBD**: Stone unlock level/cycle duration, Metal unlock level/cycle duration, mining-resource visuals, and detailed Mine progression.
+**Implemented**: Stone L1/45 seconds; Iron L4/60 seconds. L3->L4 omits the normally introduced 25 Iron; L4->L5 requires 50 Iron, retaining the virtual curve. Detailed mining visuals remain tunable/future.
 
 ## 11. Fisherman's Hut
 
@@ -202,7 +173,7 @@ Stone and Metal must not initially appear as ordinary visible deposits around th
 
 The complex includes a small pond/lake **within the same reserved 3 x 5 footprint**. The pond occupies no extra territory. Fishing does not require individually persistent fish entities.
 
-**TBD**: Fish unlock level, Fish Base Production Cycle Duration, and level-specific progression.
+**Implemented**: Fish L1/30 seconds, output 1..5. Other effects remain TBD.
 
 ## 12. Butcher and livestock
 
@@ -214,7 +185,7 @@ Domestic livestock includes **Cow, Pig, Chicken, and Sheep**. They live in the B
 
 The Butcher produces **both Meat and Wool**, each under the universal production model. Wool is not assigned to a separately invented building or profession.
 
-**TBD**: Meat unlock level/cycle duration, Wool unlock level/cycle duration, livestock population, exact animal counts, breeding, slaughter/shearing representation, and production animations.
+**Implemented**: Meat L1/30 seconds; Wool L2/45 seconds. L1->L2 omits 25 Wool, while L2->L3 costs 50 Wool, then 75 and 100. Livestock population/breeding, slaughter/shearing representation and polished animations remain TBD; no gore.
 
 ## 13. Wildlife
 
@@ -233,6 +204,7 @@ The Butcher produces **both Meat and Wool**, each under the universal production
 - Implemented citizen-triggered fleeing interrupts ordinary pause/wandering and reacts to the nearest active citizen. Valid escapes increase threat distance and prefer deeper actual Wilderness when available; within those candidates, greater threat distance ranks before depth. Fleeing never voluntarily enters claims. Prototype detection radius is 4 Tiles; safety distance is 6 Tiles, preventing rapid toggling; running uses the configurable existing 1.8 multiplier. At safety, ordinary wandering resumes. Expansion evacuation routes have priority over citizen fleeing. These are prototype tuning choices, not final wildlife balance.
 - The Wilderness-only policy belongs to peaceful ambient wildlife. Future Wolves/Bears may enter Settlement Territory and follow different movement/combat rules; their implementation remains deferred.
 - Cow, Pig, Chicken, and Sheep are separate future livestock associated with the Butcher's enclosure and do not roam Wilderness.
+- At night peaceful wildlife presentation and active ticks suspend. Morning reconciles valid Wilderness before rendering.
 - Schematic prototype geometry/colors are replaceable presentation choices, not permanent design rules.
 
 **TBD**: final spawning/population balance, ecology, detailed movement/flee tuning and citizen detection, predator AI, and combat behavior. No hunting or resource yield from decorative wildlife is approved.
@@ -245,14 +217,14 @@ Citizens are persistent individuals, not disposable generic units. They include 
 
 Assigning or changing profession must preserve that same person and underlying appearance. Profession presentation changes clothing, tools, and equipment; it must not replace the citizen with a different person or completely different base character. This remains valid when full 3D models replace prototype visuals.
 
-**Planned future building access**: citizens can become logically inside a building through its designated entrance and later exit through the entrance/access area. Houses may use this for citizens going home and remaining inside at night. This does not require outdoor pathfinding across the building footprint. Interiors, home assignment, night schedules, day/night behavior, and sleeping are not implemented or otherwise specified here.
+**Implemented residence access**: citizens walk to valid exterior access, enter logically and hide outdoors while sleeping. Morning exit uses currently valid access. Footprints remain obstacles; rendered interiors remain future work.
 ## 15. Citizen characteristics
 
 **Planned future model capabilities**: name/identity, sex, age/life stage, family relationships, profession, skills/aptitudes, individual characteristics/statistics, current needs/state, work assignment, and home assignment.
 
-Citizens have persistent identifiers, first names, sex, age, profession state, and base attributes. Approved base attributes are **Strength, Dexterity, Intelligence, Endurance, and Charisma**, represented as integers from **1 through 10**. These attributes currently have no gameplay effects; efficiency, suitability, combat, social, leveling, and experience formulas remain undefined. Future relationships can reference persistent citizen identifiers without replacing those identities.
+Citizens have persistent identifiers, first names, sex, age, profession state, and base attributes. Approved base attributes are **Strength, Dexterity, Intelligence, Endurance, and Charisma**, represented as integers from **1 through 10**. Builder efficiency uses Strength/Dexterity/Endurance; candidate quality uses all five attributes. Combat, experience and additional suitability/social formulas remain undefined. Future relationships can reference persistent citizen identifiers without replacing those identities.
 
-**TBD**: additional characteristics, skills, needs, happiness, aging rates, skill/attribute effects, and profession suitability rules. Do not invent additional statistics or formulas.
+**TBD**: additional characteristics, skills, needs, happiness, aging rates, additional skill/attribute effects, and profession suitability rules. Do not invent additional statistics or formulas.
 
 ## 16. Families and population
 
@@ -262,15 +234,21 @@ Citizens form a persistent settlement population. Adults may form families and h
 
 This serves believable settlement gameplay; unnecessary biological simulation is not required.
 
-**TBD**: relationships, partner selection, family formation, child generation, aging duration, family limits, housing requirements, and population caps.
+**TBD**: relationships, partner selection, family formation, child generation, aging duration, family limits and family-specific housing rules. Current residential capacity/recruitment limits are implemented separately.
 
 ## 17. Visitors and recruitment
 
-**Planned future system; approved direction**
+**Implemented**: each completed Tavern independently rolls **10% once per completed game day**. Multiple Taverns increase arrival frequency and may attract separate visitors on the same day. Level affects quality/request tier, not base chance; no Tavern means no roll.
 
-People may occasionally arrive from outside the settlement. Visitors are not automatically citizens. The player should eventually be able to attract or recruit suitable visitors. Recruitment supplements families and children as a population-growth and recovery mechanism.
+Each candidate has a temporary unique ID, stable adult identity (name, sex, age 18..45) and five independently drawn attributes 1..10. For each attribute draw uniform 1..10; with probability 0.15 * (TavernLevel - 1), use the maximum of that draw and a second independent draw. Higher tiers improve average quality without guaranteeing perfection.
 
-**TBD**: arrival frequency, recruitment requirements/costs, visitor characteristics, reputation requirements, and recruitment UI.
+Quality is mean attributes. Request budget = round away from zero of 25 * TavernLevel * clamp(0.75 + quality/20, 0.75, 1.25). Choose 1..3 distinct eligible resources and divide the budget into small bundles. Value weights: Wood/food 1, Wool/Stone 2, Iron 4. Integer rounding may slightly alter total value.
+
+Requests use only actually obtainable resources from completed appropriately leveled producers, and only products whose producer Town Hall unlock and resource unlock are no higher than Tavern level. Wood is always eligible. Requests stay stable.
+
+Candidates are not population/residents/workers before recruitment. Stay is **three full game days**, expiring at arrival day +3. Recruitment requires free housing and the complete bundle, pays atomically once, adds that same person to roster, assigns residence and removes candidate state. No automatic recruitment/replacement or departed/dismissed history.
+
+Named-confirmed permanent dismissal removes the citizen from roster, home, workplace, gathering and visuals. Unfinished Builder jobs retain paid materials/progress and await a qualified replacement. Families/children/reputation and extreme-loss guarantees remain future/TBD.
 
 ## 18. Citizen death and population continuity
 
@@ -306,7 +284,7 @@ The Town Hall is the starting settlement building, with a **5 x 5 Tile** reserve
 | 2 | Tavern | 4 x 5 | Cook |
 | 2 | Butcher | 3 x 6 | Butcher |
 | 2 | Fisherman's Hut | 3 x 5 | Fisher |
-| 2 | Guard Tower | 2 x 2 | Warrior dispatch is planned; staffing is TBD |
+| 2 | Guard Tower | 2 x 2 | Warrior assignment; dispatch/combat future |
 | 3 | Warehouse | 4 x 4 | Courier (planned) |
 | 3 | Lumber Mill | 5 x 5 | Lumberjack |
 | 3 | Mine | 4 x 4 | Miner |
@@ -314,11 +292,11 @@ The Town Hall is the starting settlement building, with a **5 x 5 Tile** reserve
 | 4 | Laboratory | 6 x 6 | Scientist |
 | 4 | Mage Tower + Place of Power | Shared 5 x 5 site | Mage |
 
-A building type becomes available when the Town Hall reaches its required level. **Unlocks are cumulative**: Level 1 provides the initial three building types; Level 2 retains those and adds its four types; Level 3 retains all previous types and adds its four types; Level 4 makes all currently designed build-menu types available. No Town Hall Level 5+ content is currently designed; do not invent it.
+A building type becomes available when the Town Hall reaches its required level. **Unlocks are cumulative**: Level 1 provides the initial three building types; Level 2 retains those and adds its four types; Level 3 retains all previous types and adds its four types; Level 4 makes all currently designed build-menu types available. TH5 unlocks no new type; levels beyond 5 remain undesigned.
 
 The Mage Tower and its Place of Power occupy the same overall **5 x 5 reserved building footprint/site**. The Place of Power belongs to the Mage Tower site and is not separately placeable. Only the Mage Tower itself visually changes as the building progresses/upgrades; the Place of Power remains part of that same site (section 29).
 
-This is the single approved building-type unlock list. Building-level caps are defined separately in section 6 and do not replace unlock requirements. Costs, construction times, Town Hall upgrade quest requirements, worker counts, building limits, prerequisites between individual buildings, and unspecified upgrade effects remain TBD unless already explicitly approved elsewhere. Do not invent additional buildings or prerequisites.
+This is the single approved building-type unlock list. Building-level caps are defined separately in section 6 and do not replace unlock requirements. Costs/times are implemented in SettlementPrototype. This slice uses one explicit workplace worker; extra staffing, building limits/prerequisites and unspecified effects remain TBD. Town Hall quests are approved future design. Do not invent additional buildings or prerequisites.
 
 Reserve the entire maximum footprint from initial placement. Upgrades never enlarge it.
 
@@ -351,37 +329,45 @@ Purely decorative paths or worn trails may potentially exist as future visual pr
 
 ## 21. Town Hall
 
-**Approved**: reserved footprint **5 x 5 Tiles**; already present inside the exactly 20 x 20 predefined starting territory; a major progression gate. It triggers no initial completion expansion at world creation. Final starting position and level remain TBD; the prototype uses origin (7,7) and Level 4 TEST OVERRIDE.
+**Implemented**: starts Level 1, 5 x 5 at (7,7) inside exact 20 x 20 claims, no starting influence. Management/storage/residential anchor; not normally placeable, protected from prototype demolition. Capacity 4/5/6/7/8 at L1..L5; all four starting adults live there.
 
-Town Hall is the settlement overview/management center and current logical resource storage. It displays resources, population, and the citizen roster (section 31); it does not assign the first Builder. Before a completed Warehouse exists, resources are stored in Town Hall.
+| Upgrade | Explicit cost |
+| --- | --- |
+| L1->L2 | 150 Wood |
+| L2->L3 | 300 Wood +100 Wool |
+| L3->L4 | 450 Wood +250 Wool +150 Stone |
+| L4->L5 | 600 Wood +350 Wool +250 Stone +100 Iron |
 
-Town Hall upgrades are not simply instant purchases. They involve an associated quest chain. After the relevant quest progression is completed, the Town Hall itself is upgraded through construction.
+Prototype upgrades require resource payment only and complete immediately. No generic formula or Builder timer. TH5 is max and adds no type. Management shows inventory, next cost, missing amounts, availability and max state.
 
-Building-type unlocks through Town Hall Level 4 are approved in section 20. The current design is limited to Town Hall Levels 1 through 4; no Level 5+ content is defined.
-
-**TBD**: quests, quest requirements, upgrade costs, construction times, and other unspecified level-specific effects.
+**Approved future**: quest chains/prerequisites followed by construction. Exact quests, future work durations and effects remain TBD; these are not current gates.
 
 ## 22. Builder's Hut
 
-**Approved**: reserved footprint **3 x 3 Tiles**; associated profession **Builder**. The first Hut is built manually by the **player**, before any Builder exists. This supersedes the earlier Town Hall assignment / Builder-builds-first-Hut draft.
+**Implemented**: 3 x 3, explicit Builder assignment. Player may directly build any number of L1 Huts for **25 Wood**, even with busy NPC Builders, holding **E** during Day for **300 base work seconds**. Release/deselection/Help pauses without resetting. Player cannot upgrade Huts or build/upgrade ordinary buildings.
 
-**Implemented now / prototype balance**: the first Hut costs **20 Wood**, debited once from Town Hall storage on valid confirmed placement. It reserves its oriented footprint and entrance immediately, prevents overlaps, and appears as an incomplete construction frame. It applies no influence while incomplete. A selected site accepts player-provided active work through the prototype **hold E** adapter. **30 seconds total active work** completes it; release, deselection, or closing the panel pauses work without resetting progress. Completion applies universal +3-per-side influence exactly once and reconciles citizens/wildlife.
+| Target | Authoritative Hut cost |
+| --- | --- |
+| Build L1 | 25 Wood |
+| L1->L2 | 50 Wood; no Wool |
+| L2->L3 | 75 Wood +50 Wool +25 Stone |
+| L3->L4 | 100 Wood +75 Wool +50 Stone; no Iron |
+| L4->L5 | 150 Wood +100 Wool +75 Stone +50 Iron |
 
-Construction has a shared Blueprint/Planned -> Under Construction -> Completed foundation. The current placement preview is the unpersisted blueprint stage; Town Hall starts Completed. Player work and future Builder NPC work use the same domain contribution/progress API. There is no passive construction timer.
+No special Wood curve. Existing components add 25 below 100, 50 at/above 100: 25->50->75->100->150->200.... Missing Wool/Stone/Iron enter at target L2/L3/L4 with 25. Deferred Wool (Hut/Butcher target L2) and Iron (Hut/Mine target L4) are omitted only at that target, retaining virtual later costs.
 
-Only a completed Hut offers worker assignment. Through that workplace, the player explicitly chooses an eligible unemployed adult, without automatic stat selection. The same citizen becomes Builder and gains that Hut's ID as workplace. Citizen ID, name, sex, age, all attributes, and base visual identity remain unchanged; an added work apron/tool belt distinguishes the profession. The citizen's workplace relationship is authoritative; the Hut and roster query it rather than duplicating worker state. The prototype exposes one worker choice per Hut; final worker limits remain TBD. Already pending Wood is returned before employment excludes subsequent ambient trips.
+NPC Builders construct ordinary buildings and all upgrades, approach access and work during Day. One Builder/job and one job/Builder. Other upgrades require Hut at target level. A Builder may upgrade their own Hut by one level if TH permits. Pay atomically at start; completed costs accumulate as investment. Reserve initial footprints immediately; initial completion grants influence once, upgrades never repeat.
 
-**Approved future design**: all normal subsequent buildings are constructed by assigned Builder NPCs: blueprint -> supplied resources -> Builder job -> entrance/access approach -> work -> completion -> influence once. Other building costs and work durations are not designed, so normal subsequent construction is not implemented. All catalog previews remain available; the immediate generic placement API remains a domain test fixture, not the playable construction flow.
+Required work = base seconds * target level (1 initially). Rate = (1 + .20 * max(0, hutLevel - currentBuildingLevel)) * (.90 + (Strength + Dexterity + Endurance)/150).
+Initial construction uses current level 1. Attributes 5/5/5 give personal efficiency 1; 1/1/1 give .92; 10/10/10 give 1.1. House L1->L2: Hut L1 neutral Builder takes 600 active seconds; Hut L4 takes 600/1.6=375, plus travel/night pauses.
 
-After the Hut exists, construction progression depends on it. Its maximum level remains capped by current Town Hall level under the global Level 1-4 rule.
-
-**TBD**: costs/work requirements for other buildings, NPC construction speeds, final worker limits/range, upgrades and level-specific capability, cancellation/refunds, physical player range/tools/inventory/material delivery.
+All recipes/generated costs/times are in [SettlementPrototype.md](SettlementPrototype.md). Immediate TryPlacePrototypeBuilding remains a domain fixture only. Physical player range/tools/carrying, extra staffing and construction cancellation UI remain TBD.
 
 ## 23. House
 
-**Approved**: reserved footprint **3 x 3 Tiles**; supports settlement population and family life.
+**Implemented**: 3 x 3, initial 25 Wood/300 base work seconds; capacity 2/3/4/5/6 at L1..L5. Explicit residence reassignment does not teleport. Capacity increases only after upgrade completes.
 
-**TBD**: citizen capacity, family capacity, upgrade benefits, and housing requirements.
+**Future / TBD**: family-specific behavior and additional benefits.
 
 ## 24. Warehouse
 
@@ -393,9 +379,9 @@ Courier resource transportation/distribution must not depend on a constructed ro
 
 ## 25. Tavern
 
-**Approved**: reserved footprint **4 x 5 Tiles**; associated profession **Cook**; associated with food/meal-related settlement functionality.
+**Implemented**: 4 x 5, 100 Wood/480 base work seconds; residential capacity 3/4/5/6/7 at L1..L5 and recruitment in section 17. Housing contributes ordinary population capacity independently of waiting visitors.
 
-**TBD**: meal production, recipes, hunger/food needs, ingredient usage, Tavern capacity, and social functionality.
+**Future / TBD**: Cook functionality, meals, recipes, hunger, ingredients and social systems. No invented Tavern production.
 
 ## 26. Barracks
 
@@ -431,28 +417,29 @@ Courier resource transportation/distribution must not depend on a constructed ro
 
 ## 30. Intended early-game flow
 
-**Approved current bootstrap; implemented in the standalone prototype**:
+**Implemented**
 
-1. Exactly 20 x 20 claimed Tiles, a completed Town Hall, surrounding forest Wilderness, four unemployed adults, and 10 Wood in Town Hall storage.
-2. Unemployed adults occasionally gather in authorized nearby Wilderness; wildlife flees approaching citizens. Successful returns deposit 2 Wood with a 90% per-trip success chance.
-3. The player inspects resources/population and all citizens through Town Hall management.
-4. At 20 Wood, the player places the first Builder's Hut site, paying 20 once. No influence applies yet.
-5. The player provides 30 seconds of active construction work, with interruption/resume. Completion applies influence once.
-6. Through the completed Hut, the player chooses an unemployed adult as Builder. Identity/attributes persist; workplace and profession clothing change.
+1. TH1, 10 Wood, four Town Hall residents, 400 claims and peaceful wildlife.
+2. Unemployed adults return +3 Wood per successful 90% trip.
+3. At 25 Wood place L1 Hut, hold E during Day for 300 work seconds, complete influence once, explicitly assign Builder.
+4. Save 150 Wood, buy TH2, upgrade Builder's own Hut L2 for 50 Wood without Wool.
+5. Build Butcher, assign worker, upgrade L2 without Wool and produce Wool.
+6. Buy TH3. Build Mine L1 using L2 Builder, assign Miner and produce Stone **before** paying Stone for Hut L3. Upgrade Hut L3 and Mine through L3.
+7. Buy TH4; upgrade Hut L4 without Iron, then Mine L4 without Iron and produce Iron.
+8. Buy TH5, upgrade Hut L5 and remaining buildings; no new TH5 type.
+9. Build homes/Taverns, recruit with goods/free housing, manage jobs/residences and confirmed demolition/dismissal.
 
-**Approved future continuation**: normal subsequent construction belongs to assigned Builder NPCs; resource costs and work requirements still need design. Building types unlock cumulatively through Town Hall Levels 1-4 (section 20), with maximum building levels capped separately (section 6). Town Hall upgrades require quest-chain progression followed by construction. Upgrades do not repeat influence; demolition/destruction do not revoke claims.
-
-Profile/menu routing is unchanged. SettlementPrototype is still a standalone scene that resets on leaving Play Mode. Town Hall Level 4 is a test override, not the final new-game starting level.
+This path avoids producer deadlocks without a special Wood curve. Night pauses work; progress persists, claims never shrink. Menu/profile routing is unchanged; runtime resets after Play Mode. Future Town Hall quests/construction are not current gates.
 
 ## 31. Resource and settlement management UI
 
-**Implemented now**: compact always-visible Wood HUD; clicking Town Hall opens a separate management panel with Level 4 TEST OVERRIDE, actual claimed Tile count, total/employed/unemployed population, current Wood, Town Hall storage identity, and all four citizens exactly once. Each roster entry shows actual name, sex, age, profession, workplace, Strength, Dexterity, Intelligence, Endurance, and Charisma. Roster selection opens the same citizen information used by world selection. Profession/workplace updates immediately in both; there is no copied citizen model.
+**Implemented**: compact Wood/time HUD, debug 1x/2x/4x/8x/16x controls, scrollable management. Build list follows cumulative TH unlocks and shows recipes. Town Hall displays ten resource amounts/availability, next cost/missing amounts/max state, population/capacity, employment, homelessness, residences and live roster.
 
-Town Hall provides high-level overview. Profession assignment belongs to the corresponding completed workplace, with only Builder's Hut -> Builder implemented now. Future workplace associations remain those in section 20; Tavern -> Cook, Warehouse -> Courier, and Barracks/military -> Warrior are future systems. Placement retains priority over world picking; all management panels participate in UI pointer blocking.
+Completed workplaces provide explicit citizen assignment. Buildings show level, upgrade eligibility/cost/work, residents where applicable and confirmed demolition/refund. Tavern shows candidate identity/attributes/request/remaining days and affordable recruitment requiring housing. Citizen inspection offers named permanent-dismissal confirmation; Town Hall offers residence reassignment.
 
-**Approved future design**: show quantities of relevant/unlocked resources without inspecting each producer, with extensibility beyond the current functional Wood resource.
+Universal E stays centralized: press opens completed building/citizen management, hold only initial L1 Hut work. Help/placement suppress world E, including closing-frame guards. Scrollable Help describes implemented systems without pausing simulation.
 
-**TBD**: final screen layout, icons, grouping/sorting, locked-resource visibility, tooltips, animations, and polished UI.
+**TBD**: polished UI/art, sorting, icons/tooltips and layout refinements.
 
 ## 32. Long-term architectural intent
 
@@ -472,86 +459,36 @@ Current prototype implementation details are documented in SettlementPrototype.m
 
 ## 33. TBD / Open Design Questions
 
-Everything below remains unresolved. These questions do not authorize agents to choose answers.
+TH1..5, L1..5 recipes, producer exceptions, concurrent cycles, construction times, Builder gates/efficiency, explicit staffing, housing capacity, day/night, recruitment, dismissal and refunds are settled by this milestone.
 
-### Production balance
+**Approved future / still TBD**
 
-| Resource | Unlock building level | Base Production Cycle Duration |
-| --- | --- | --- |
-| Wood | TBD | TBD |
-| Stone | TBD | TBD |
-| Metal | TBD | TBD |
-| Fish | TBD | TBD |
-| Meat | TBD | TBD |
-| Wool | TBD | TBD |
+- Town Hall quest chains and future construction durations; no invented TH6+ or new TH5 buildings.
+- Extra workplace staff, building limits, extra prerequisites and unspecified effects.
+- Physical player controller/range/tools/inventory, carrying, hauling, Warehouse capacities and Courier logistics; no gameplay roads.
+- Skills, needs, happiness, aging, extra stat effects/suitability and final balance.
+- Families/children, family housing, death/morale/graves/inheritance, extreme-loss safeguards. No guaranteed visitors/replacements.
+- Cook meals/recipes/hunger/social functions; military equipment/training/combat/dispatch, predators.
+- Livestock population/breeding, slaughter/shearing and polished work/level visuals.
+- Research, technology tree, magic and Power site functions; no separately placeable Place of Power.
+- Inputs, storage blocking, delivery/offline production, final schedules and advanced interruptions. Current partial cycles/daytime attendance are implemented.
+- Construction cancellation UI, ruins/combat destruction and extra rebuilding effects. Completed-building refunds/permanent claims are settled; prototype Town Hall is protected.
+- Final Tile/world scale, full 3D navigation, streaming, perspectives and polished UI.
+- World-edge/diagonal/disconnected-claim influence edge cases beyond current union behavior, final 3D Town Hall placement, and physical player boundary enforcement remain future questions. Current prototype origin (7,7), TH1 start and player-inside-claims rule are settled.
 
-Farm unlock levels and cycle durations are approved in section 8; they are not open balance values here.
+Whole-footprint placement and completion influence are compatible. Influence union adds only genuinely unclaimed Tiles; upgrades repeat none; demolition removes occupancy without revoking claims. Decorative trees/expansion award no resources.
 
-### Buildings
 
-- Construction costs/work requirements other than the first Hut (20 Wood, 30 seconds active player work), upgrade costs/times, and undefined level-specific benefits.
-- Worker counts, building-count limits, and prerequisites between individual buildings remain TBD unless explicitly approved elsewhere. Do not invent them from the unlock table.
-- Which buildings are upgradeable where applicability has not been specified.
-- House citizen/family capacity and housing requirements; Warehouse and Barracks capacities.
-- Farm additional benefits, visuals, and field presentation; Lumber Mill functionality; Mine progression and resource visuals; Fisherman's Hut progression.
-- Builder construction speeds, worker limits, range, and level-specific capabilities.
-- Courier behavior, delivery priorities, storage rules, and Warehouse upgrades.
-- Tavern recipes, meal production, ingredient usage, food needs, capacity, and social functionality.
-- Barracks training, equipment, progression, and combat integration.
+## 34. Day/night and ambience
 
-### Town Hall
+**Implemented**: Day 420 seconds, Night 180, cycle 600; day starts 1. Speeds 1/2/4/8/16 scale simulation through <=.1-second movement steps split at boundaries, not UI/transforms. Day/phase/progress are exposed.
 
-- Exact quest chains, quest requirements, upgrade requirements/costs, construction times, and other progression unlocks not explicitly approved elsewhere. Building-type unlock levels through Town Hall Level 4 are approved in section 20 and are not TBD. No Level 5+ content is defined.
+Night pauses production/Builder work and new gathering; pending Wood returns first. Residents walk to home exterior access, sleep inside logically, then exit valid access in morning. Homeless citizens remain outside near Town Hall; footprints stay obstacles.
 
-### Citizens
+Smooth world material/ground/lighting darkening leaves UI unchanged. Actual sleeping residences show warm windows and procedural per-resident moon phases; sparse unsynchronized fireflies use valid Wilderness. Peaceful wildlife sleeps off-screen and reconciles morning claims. Profession equipment/work motion/dust are replaceable presentation only.
 
-- Exact characteristics/statistics, skill system and effects, needs system, happiness system, aging speed, and profession suitability.
-- Work/home assignment details not otherwise defined.
+## 35. Demolition and permanent dismissal
 
-### Population
+**Implemented**: confirmed completed ordinary-building demolition refunds floor(invested resource / 2), counting initial construction and completed upgrades. In-progress upgrades must finish first. Occupancy is removed, territory stays claimed; workers lose jobs, residents reassign or become homeless, Tavern candidates leave. Unfinished jobs retain paid materials/progress and await qualified replacement Builders.
 
-- Relationships, partner selection, family formation rules, child generation rules, child aging rules, family limits, housing requirements, and population limits.
-- Visitor frequency, visitor characteristics, recruitment rules/costs, reputation requirements, and recruitment UI.
-- Death consequences, family/morale effects, profession replacement, graves/memorials, and inheritance.
-
-### Combat / wildlife
-
-- Predator spawning, predator behavior/AI, combat rules, Warrior behavior, and Guard Tower detection radius, warnings, dispatch rules, and combat interaction.
-- Wildlife movement, population, and ecology.
-- Domestic livestock counts/population, breeding, slaughter/shearing representation, and production animations.
-
-### Advanced systems
-
-- Research system, magic system, Mage functionality, Place of Power functionality, and magical progression.
-- No technology tree or separate Place of Power progression is defined.
-
-### UI
-
-- Exact Resource UI presentation: position, icons, grouping, sorting, locked-resource visibility, tooltips, and animations.
-- First-person/third-person controls and perspective-switching behavior.
-
-### Additional genuine ambiguities requiring later decisions
-
-- **Tile scale and world extent**: what physical size does a logical Tile represent in 3D, and what are the world's outer limits, if any?
-- **Final boundary/navigation behavior**: the current prototype uses actual cardinal boundary depth and task replanning/recovery (section 2). Final 3D navigation and additional task policies remain TBD.
-- **Influence geometry edge cases**: how are diagonal corners, world edges, disconnected claimed areas, or holes treated beyond the approved straight-boundary examples?
-- **Starting Town Hall details**: its exact position within the predefined territory and its initial level remain TBD. It applies no initial completion expansion.
-- **Demolition, destruction, and rebuilding details**: costs, refunds, ruins, rebuilding rules, and detailed destruction behavior remain TBD. Permanent claimed territory and no repeated upgrade influence are settled rules.
-- **Placement presentation and special cases**: entrance/traversal representation and detailed visual orientation remain TBD. No extra general placement requirement is approved beyond claimed territory and non-overlapping footprints. Any future special-building requirements need explicit design; roads are not an unresolved prerequisite.
-- **Player boundary enforcement**: how is the prohibition on physical movement outside claimed territory enforced without defining an unapproved movement mechanic?
-- **Ambient gathering operation**: final balance, physical carrying animation, additional profession eligibility, and advanced scheduling remain TBD. Current unemployed-adult eligibility, 2 Wood / 90% yield, 10-Tile depth, and prototype cadence are specified in section 4. Assigned Builders are excluded.
-- **Bootstrap beyond this slice**: current initial conditions and first-Hut recipe/work are specified in sections 22 and 30. Subsequent recipes, cancellation/refunds, and construction progression remain TBD.
-- **Production operation**: concurrent cycles, selected products, player priorities, Farmer-selected work, divided worker time, or another schedule remain undecided. Worker count per building, additional workers from upgrades, efficiency/stat modifiers, work schedules, absence behavior, travel time, inputs, interruptions/partial progress, storage blocking, delivery/output destinations, upgrades during cycles, and offline/background production remain TBD. Appropriate assigned-profession workers are already required.
-- **Population deadlock prevention**: how should recovery work after extreme population loss when family growth is impossible? Emergency visitors, replacement citizens, minimum protected population, recruitment guarantees, and game-over conditions are not approved. The exact fail-safe remains TBD.
-- **Non-production levels**: what level behavior applies to each building where the global ceiling is known but building-specific functionality is not? Do not infer a resource output rule for Tavern meals without an approved definition.
-
-### Contradiction and ambiguity review
-
-No direct contradiction was identified among the explicit rules. Unspecified operational details above must remain open. In particular:
-
-- Full-footprint placement inside existing territory and expansion on completion are compatible: the footprint is already claimed, while influence can claim surrounding Wilderness.
-- Visually removing trees during expansion grants no resources; separate ambient citizen trips are the approved source of small early Wood income.
-- Universal production defines output and level availability for an active process, with an appropriate assigned-profession worker required. Scheduling, worker counts/attendance details, and inputs remain undecided.
-- The initial territory is exactly 20 x 20 Tiles. The already existing Town Hall causes no expansion at creation; subsequent initially completed buildings do, upgrades do not, and demolition/destruction never revoke claimed territory.
-- Unemployed adults provide ambient bootstrap Wood. The player constructs the first Hut (20 Wood / 30 active seconds), then assigns Builder through the completed Hut. This supersedes the earlier Town Hall assignment and idle-Builder gathering draft.
-- Non-overlapping reserved footprints and 90-degree rotation are approved. Influence overlap adds no bonus. Road connectivity is neither a placement nor an operational requirement.
+Named-confirmed dismissal removes citizens from roster, workplace/residence/gathering and visual state, frees capacity and never automatically replaces or retains history. Starting Town Hall is protected as the prototype storage/management anchor; future anchor destruction/replacement remains TBD.

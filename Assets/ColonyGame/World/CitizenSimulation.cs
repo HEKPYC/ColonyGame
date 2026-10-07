@@ -27,6 +27,8 @@ namespace ColonyGame.World
         private readonly SettlementIdleMovementPolicy settlementPolicy;
         private readonly Random random;
         private readonly CitizenMovementSettings settings;
+        private readonly List<Citizen> roster;
+        public Func<Citizen,double,double,bool> ScheduledMovement { get; set; }
         public IReadOnlyList<Citizen> Citizens { get; }
         public AmbientWoodGathering Gathering { get; set; }
         public event Action<string> DevelopmentWarning;
@@ -38,7 +40,7 @@ namespace ColonyGame.World
             var list=citizens?.ToList() ?? throw new ArgumentNullException(nameof(citizens));
             if(list.Any(c=>c==null)||list.Select(c=>c.Id).Distinct().Count()!=list.Count)
                 throw new ArgumentException("Citizen identities must be unique.",nameof(citizens));
-            Citizens=list.AsReadOnly();
+            roster=list; Citizens=roster.AsReadOnly();
             this.settings=settings ?? new CitizenMovementSettings();
             random=new Random(seed);
             foreach(var citizen in list) citizen.Pause=PauseDuration();
@@ -63,6 +65,44 @@ namespace ColonyGame.World
                     random.Next(18,46),new CitizenAttributes(random.Next(1,11),random.Next(1,11),random.Next(1,11),random.Next(1,11),random.Next(1,11)),
                     CitizenPosition.Center(positions[i])));
             return new CitizenSimulation(policy,citizens,settings,seed);
+        }
+        public bool AddCitizen(Citizen citizen)
+        {
+            if(citizen==null||roster.Any(c=>c.Id==citizen.Id)) return false;
+            roster.Add(citizen); return true;
+        }
+        public bool RemoveCitizen(Citizen citizen)
+        {
+            if(!roster.Remove(citizen)) return false;
+            Gathering?.RemoveCitizen(citizen);
+            citizen.Active=false; citizen.Route.Clear(); citizen.GatheringTask=citizen.ScheduledTask=CitizenTask.Idle;
+            citizen.Profession=CitizenProfession.Unemployed;citizen.Movement=CitizenMovement.Idle;citizen.Destination=citizen.Position;
+            citizen.WorkplaceBuildingId=null; citizen.ResidenceBuildingId=null; citizen.InsideBuildingId=null;
+            return true;
+        }
+        internal bool TravelTo(Citizen citizen,TileCoordinate target,double seconds,double speed)
+        {
+            if(!Walkable(target)) return false;
+            var destination=CitizenPosition.Center(target);
+            if(citizen.Destination.DistanceSquared(destination)>1e-9||citizen.Route.Count==0&&citizen.Position.DistanceSquared(destination)>1e-9)
+            {
+                var route=CitizenNavigation.FindPath(citizen.Position.Tile,target,Walkable);
+                if(route.Count==0) return false;
+                SetRoute(citizen,route,CitizenMovement.Walking);
+            }
+            double remaining=seconds;
+            while(citizen.Route.Count>0&&remaining>0)
+            {
+                var next=citizen.Route.Peek(); double distance=Math.Sqrt(citizen.Position.DistanceSquared(next));
+                double amount=Math.Min(distance,remaining*speed);
+                var position=distance==0?next:new CitizenPosition(citizen.Position.X+(next.X-citizen.Position.X)*amount/distance,citizen.Position.Z+(next.Z-citizen.Position.Z)*amount/distance);
+                if(!policy.CanOccupy(position)) {citizen.Route.Clear();return false;}
+                citizen.Position=position; remaining-=amount/speed;
+                if(amount<distance) break;
+                citizen.Route.Dequeue();
+            }
+            if(citizen.Route.Count==0) citizen.Movement=CitizenMovement.Idle;
+            return citizen.Position.DistanceSquared(destination)<1e-9;
         }
         private double PauseDuration()=>settings.MinimumPause+random.NextDouble()*(settings.MaximumPause-settings.MinimumPause);
         private bool Walkable(TileCoordinate t)=>policy.CanOccupy(CitizenPosition.Center(t));
@@ -112,6 +152,7 @@ namespace ColonyGame.World
             if(recoverDormant) settlementPolicy?.RefreshConnectivity();
             foreach(var citizen in Citizens)
             {
+                if(citizen.InsideBuildingId!=null) continue;
                 if(!citizen.Active&&!recoverDormant) continue;
                 if(Gathering?.Reconcile(citizen)==true) continue;
                 if(!Connected(citizen.Position))
@@ -146,7 +187,8 @@ namespace ColonyGame.World
             foreach(var citizen in Citizens)
             {
                 if(!citizen.Active) continue;
-                if(Gathering?.TickCitizen(citizen,seconds,settings.Speed)==true) continue;
+                if(citizen.InsideBuildingId==null&&Gathering?.TickCitizen(citizen,seconds,settings.Speed)==true) continue;
+                if(citizen.Movement!=CitizenMovement.Recovering&&ScheduledMovement?.Invoke(citizen,seconds,settings.Speed)==true) continue;
                 if(citizen.Movement==CitizenMovement.Idle)
                 {
                     citizen.Pause-=seconds;

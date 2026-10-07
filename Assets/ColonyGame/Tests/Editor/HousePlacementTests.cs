@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using NUnit.Framework;
 
@@ -9,7 +9,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void InteriorHouseCompletesWithNineTilesAndNoNewClaims()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.ValidateBuildingPlacement(BuildingType.House, new TileCoordinate(3, 3)), Is.EqualTo(BuildingPlacementValidity.Valid));
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(3, 3), 0, out var house), Is.True);
             Assert.That(house.Type, Is.EqualTo(BuildingType.House));
@@ -25,7 +25,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void PartialWildernessPlacementIsRejectedWithoutMutation()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             var original = state.Territory.ClaimedTiles.ToArray();
             Assert.That(state.ValidateBuildingPlacement(BuildingType.House, new TileCoordinate(18, 8)), Is.EqualTo(BuildingPlacementValidity.OutsideTerritory));
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(18, 8), 0, out var house), Is.False);
@@ -36,7 +36,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void TownHallAndHouseOverlapAreRejected()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.ValidateBuildingPlacement(BuildingType.House, new TileCoordinate(6, 6)), Is.EqualTo(BuildingPlacementValidity.Occupied));
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(6, 6), 0, out _), Is.False);
             state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(3, 3), 0, out _);
@@ -48,7 +48,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void RightEdgeCreatesOnlyTwentySevenTilesInThreeByNineProtrusion()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(17, 8), 0, out _);
             Assert.That(state.Territory.Count, Is.EqualTo(427));
             var outside = state.Territory.ClaimedTiles.Where(t => t.X >= 20).ToArray();
@@ -65,7 +65,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void InfluenceAndValidationAreIdempotentIncludingStartingExemption()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.ApplyBuildingInfluence(state.TownHall), Is.Zero);
             Assert.That(state.Territory.Count, Is.EqualTo(400));
             Assert.That(state.TownHall.TerritoryInfluenceApplied, Is.False);
@@ -79,7 +79,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void SecondHouseCanUseFirstHouseClaimsAndHasDistinctIdentity()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.ValidateBuildingPlacement(BuildingType.House, new TileCoordinate(20, 8)), Is.EqualTo(BuildingPlacementValidity.OutsideTerritory));
             state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(17, 8), 0, out var first);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(20, 8), 0, out var second), Is.True);
@@ -92,8 +92,8 @@ namespace ColonyGame.World.Tests
         [Test]
         public void InfluenceRejectsBuildingsFromOtherSettlements()
         {
-            var state = SettlementState.CreatePrototype();
-            var other = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
+            var other = SettlementState.CreatePrototype(4);
             other.TryPlacePrototypeBuilding(BuildingType.House, new TileCoordinate(3, 3), 0, out var house);
             Assert.Throws<ArgumentException>(() => state.ApplyBuildingInfluence(house));
             Assert.That(state.Territory.Count, Is.EqualTo(400));

@@ -15,14 +15,14 @@ namespace ColonyGame.World.Tests
         }
         private static SettlementBootstrap Create(bool single=false,double result=.1)
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var simulation=CitizenSimulation.CreatePrototype(state);
             if(single) simulation=new CitizenSimulation(new SettlementIdleMovementPolicy(state),new[]{simulation.Citizens[0]});
-            var bootstrap=new SettlementBootstrap(state,simulation,new BootstrapSettings(minimumCooldown:10000,maximumCooldown:10000));
+            var bootstrap=new SettlementBootstrap(state,simulation,new BootstrapSettings(playerWorkSeconds:30,minimumCooldown:10000,maximumCooldown:10000));
             simulation.Gathering=new AmbientWoodGathering(bootstrap,new FixedRandom(result));
             return bootstrap;
         }
-        private static void Fund(SettlementBootstrap b)=>b.Resources.TryTransaction("test-materials",ResourceType.Wood,10);
+        private static void Fund(SettlementBootstrap b)=>b.Resources.TryTransaction("test-materials",ResourceType.Wood,15);
         private static BuildingState Start(SettlementBootstrap b,int angle=0)
         {
             Fund(b);
@@ -71,7 +71,7 @@ namespace ColonyGame.World.Tests
             Assert.IsFalse(b.TryStartFirstHut(new TileCoordinate(7,7),0,out _));
             Assert.IsFalse(b.TryStartFirstHut(new TileCoordinate(19,19),0,out _));
             Assert.IsFalse(b.TryStartFirstHut(new TileCoordinate(17,8),45,out _));
-            Assert.AreEqual(20,b.Resources.Amount(ResourceType.Wood));
+            Assert.AreEqual(25,b.Resources.Amount(ResourceType.Wood));
         }
         [Test] public void FirstHutStartsWithoutBuilderChargesExactlyOnceAndReservesNineTiles()
         {
@@ -84,12 +84,12 @@ namespace ColonyGame.World.Tests
             Assert.IsFalse(b.TryStartFirstHut(new TileCoordinate(2,2),0,out _));
             Assert.AreEqual(0,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(2,b.Settlement.Buildings.Count);
         }
-        [Test] public void CostIsTwentyEvenWithExtraStockAndRepeatedInput()
+        [Test] public void CostIsTwentyFiveEvenWithExtraStockAndRepeatedInput()
         {
             var b=Create(); b.Resources.TryTransaction("more",ResourceType.Wood,100);
             Assert.IsTrue(b.TryStartFirstHut(new TileCoordinate(17,8),0,out _));
-            for(int i=0;i<30;i++) Assert.IsFalse(b.TryStartFirstHut(new TileCoordinate(2,2),0,out _));
-            Assert.AreEqual(90,b.Resources.Amount(ResourceType.Wood));
+            for(int i=0;i<30;i++) Assert.IsFalse(b.TryStartFirstHut(new TileCoordinate(17,8),0,out _));
+            Assert.AreEqual(85,b.Resources.Amount(ResourceType.Wood));
         }
         [Test] public void WorkOnlyProgressesFromExplicitContributionAndResumesAfterPause()
         {
@@ -194,19 +194,19 @@ namespace ColonyGame.World.Tests
             Assert.IsFalse(b.Settlement.Territory.IsClaimed(c.Destination.Tile));
             Assert.LessOrEqual(b.Simulation.Gathering.Area.Depth(c.Destination.Tile),10);
             Until(b,()=>c.Task==CitizenTask.ReturningWood);
-            Assert.AreEqual(10,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(2,b.Simulation.Gathering.PendingWood(c));
+            Assert.AreEqual(10,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(3,b.Simulation.Gathering.PendingWood(c));
             Assert.AreEqual(1,b.Simulation.Gathering.SuccessRolls);
             Assert.AreEqual(CitizenPosition.Center(b.Settlement.TownHall.Entrance.ExteriorTile).Tile,c.Destination.Tile);
         }
-        [Test] public void SuccessfulReturnDepositsExactlyTwoOnceAndRestoresOrdinaryMovement()
+        [Test] public void SuccessfulReturnDepositsExactlyThreeOnceAndRestoresOrdinaryMovement()
         {
             var b=Create(true); var c=b.Roster[0]; Assert.IsTrue(b.Simulation.Gathering.TryBegin(c));
             Until(b,()=>!b.Simulation.Gathering.HasTrip(c));
-            Assert.AreEqual(12,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(1,b.Simulation.Gathering.SuccessRolls);
+            Assert.AreEqual(13,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(1,b.Simulation.Gathering.SuccessRolls);
             Assert.AreEqual(0,b.Simulation.Gathering.PendingWood(c));
             Assert.Less(c.Position.DistanceSquared(CitizenPosition.Center(b.Settlement.TownHall.Entrance.ExteriorTile)),1e-10);
             for(int i=0;i<100;i++) b.Simulation.Tick(.25);
-            Assert.AreEqual(12,b.Resources.Amount(ResourceType.Wood));
+            Assert.AreEqual(13,b.Resources.Amount(ResourceType.Wood));
             Assert.IsTrue(new SettlementIdleMovementPolicy(b.Settlement).CanOccupy(c.Position));
         }
         [Test] public void FailedTripRollsOnceReturnsAndDepositsZero()
@@ -228,9 +228,9 @@ namespace ColonyGame.World.Tests
         [Test] public void AssignmentWhileReturningPreservesPendingDeliveryThenStopsAmbientWork()
         {
             var b=Create(true); var site=Complete(b); var c=b.Roster[0]; b.Simulation.Gathering.TryBegin(c);
-            Until(b,()=>c.Task==CitizenTask.ReturningWood); Assert.AreEqual(2,b.Simulation.Gathering.PendingWood(c));
+            Until(b,()=>c.Task==CitizenTask.ReturningWood); Assert.AreEqual(3,b.Simulation.Gathering.PendingWood(c));
             b.TryAssignBuilder(site,c.Id); Until(b,()=>!b.Simulation.Gathering.HasTrip(c));
-            Assert.AreEqual(2,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(CitizenProfession.Builder,c.Profession);
+            Assert.AreEqual(3,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(CitizenProfession.Builder,c.Profession);
             for(int i=0;i<200;i++) b.Simulation.Tick(.25);
             Assert.IsFalse(b.Simulation.Gathering.HasTrip(c)); Assert.AreEqual(1,b.Simulation.Gathering.SuccessRolls);
         }
@@ -263,7 +263,7 @@ namespace ColonyGame.World.Tests
             Assert.IsTrue(b.Settlement.Territory.IsClaimed(c.Destination.Tile));
             Assert.IsFalse(b.Settlement.IsOccupied(c.Destination.Tile));
             Until(b,()=>!b.Simulation.Gathering.HasTrip(c));
-            Assert.AreEqual(12,b.Resources.Amount(ResourceType.Wood));
+            Assert.AreEqual(13,b.Resources.Amount(ResourceType.Wood));
         }
         [Test] public void NewlyClaimedGatheringDestinationCancelsWithoutAwardOrTeleport()
         {
@@ -282,9 +282,9 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void CentralBalanceMatchesApprovedValuesAndRejectsInvalidConfiguration()
         {
-            var s=new BootstrapSettings(); Assert.AreEqual(10,s.StartingWood); Assert.AreEqual(20,s.HutWoodCost);
-            Assert.AreEqual(2,s.WoodYield); Assert.AreEqual(.9,s.SuccessChance); Assert.AreEqual(10,s.WildernessDepth);
-            Assert.AreEqual(30,s.PlayerWorkSeconds); Assert.AreEqual(4,s.WildlifeDetectionRadius);
+            var s=new BootstrapSettings(); Assert.AreEqual(10,s.StartingWood); Assert.AreEqual(25,s.HutWoodCost);
+            Assert.AreEqual(3,s.WoodYield); Assert.AreEqual(.9,s.SuccessChance); Assert.AreEqual(10,s.WildernessDepth);
+            Assert.AreEqual(300,s.PlayerWorkSeconds); Assert.AreEqual(4,s.WildlifeDetectionRadius);
             Assert.Throws<ArgumentOutOfRangeException>(()=>new BootstrapSettings(successChance:1.1));
             Assert.Throws<ArgumentOutOfRangeException>(()=>new BootstrapSettings(playerWorkSeconds:double.PositiveInfinity));
         }

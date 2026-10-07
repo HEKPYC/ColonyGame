@@ -4,11 +4,11 @@ using System.Linq;
 
 namespace ColonyGame.World
 {
-    public enum ResourceType { Wood }
+    public enum ResourceType { Wood, Stone, Iron, Wool, Beetroot, Wheat, Potato, Carrot, Fish, Meat }
     public enum ConstructionStage { Planned, UnderConstruction, Completed }
     public enum ConstructionActor { Player, Builder }
 
-    // Prototype balance, independent of presentation. Final economy remains undecided.
+    // Central prototype balance, independent of presentation.
     public sealed class BootstrapSettings
     {
         public int StartingWood { get; }
@@ -26,8 +26,8 @@ namespace ColonyGame.World
         public int MaximumGatherers { get; }
         public int PreferredGatherDepth { get; }
         public int DestinationCandidates { get; }
-        public BootstrapSettings(int startingWood=10, int hutWoodCost=20, int woodYield=2,
-            double successChance=.9, int wildernessDepth=10, double playerWorkSeconds=30,
+        public BootstrapSettings(int startingWood=10, int hutWoodCost=25, int woodYield=3,
+            double successChance=.9, int wildernessDepth=10, double playerWorkSeconds=300,
             double minimumCooldown=18, double maximumCooldown=32, double gatheringPause=3,
             double wildlifeDetectionRadius=4, double initialGatherDelay=4, double citizenGatherStagger=6,
             int maximumGatherers=2, int preferredGatherDepth=4, int destinationCandidates=24)
@@ -53,23 +53,31 @@ namespace ColonyGame.World
     public sealed class ResourceInventory
     {
         private readonly Dictionary<ResourceType,int> amounts=new Dictionary<ResourceType,int>();
-        private readonly Dictionary<string,Tuple<ResourceType,int>> transactions=new Dictionary<string,Tuple<ResourceType,int>>();
+        private readonly Dictionary<string,string> transactions=new Dictionary<string,string>();
         public int Amount(ResourceType type)=>amounts.TryGetValue(type,out int n)?n:0;
-        public bool TryTransaction(string transactionId, ResourceType type, int delta)
+        public bool CanPay(IReadOnlyDictionary<ResourceType,int> cost)=>cost.All(x=>x.Value>=0&&Amount(x.Key)>=x.Value);
+        public bool TryPay(string id,IReadOnlyDictionary<ResourceType,int> cost)
         {
-            if(string.IsNullOrWhiteSpace(transactionId)) throw new ArgumentException("Transaction identity is required.",nameof(transactionId));
-            if(!Enum.IsDefined(typeof(ResourceType),type)) throw new ArgumentOutOfRangeException(nameof(type));
-            if(transactions.TryGetValue(transactionId,out var previous)) return previous.Item1==type&&previous.Item2==delta;
-            long next=(long)Amount(type)+delta;
-            if(next<0 || next>int.MaxValue) return false;
-            amounts[type]=(int)next;
-            transactions.Add(transactionId,Tuple.Create(type,delta));
+            if(cost.Any(x=>x.Value<0)) throw new ArgumentOutOfRangeException(nameof(cost));
+            return TryBundle(id,cost.ToDictionary(x=>x.Key,x=>-x.Value));
+        }
+        public bool TryTransaction(string id,ResourceType type,int delta)=>TryBundle(id,new Dictionary<ResourceType,int>{{type,delta}});
+        public bool TryBundle(string id,IReadOnlyDictionary<ResourceType,int> changes)
+        {
+            if(string.IsNullOrWhiteSpace(id)) throw new ArgumentException("Transaction identity is required.",nameof(id));
+            if(changes==null) throw new ArgumentNullException(nameof(changes));
+            if(changes.Keys.Any(x=>!Enum.IsDefined(typeof(ResourceType),x))) throw new ArgumentOutOfRangeException(nameof(changes));
+            string fingerprint=string.Join(";",changes.OrderBy(x=>x.Key).Select(x=>$"{(int)x.Key}:{x.Value}"));
+            if(transactions.TryGetValue(id,out var old)) return old==fingerprint;
+            if(changes.Any(x=>(long)Amount(x.Key)+x.Value<0||(long)Amount(x.Key)+x.Value>int.MaxValue)) return false;
+            foreach(var x in changes) amounts[x.Key]=Amount(x.Key)+x.Value;
+            transactions.Add(id,fingerprint);
             return true;
         }
     }
-
     public sealed class SettlementBootstrap
     {
+        public SettlementEconomy Economy { get; internal set; }
         public SettlementState Settlement { get; }
         public CitizenSimulation Simulation { get; }
         public BootstrapSettings Settings { get; }
@@ -85,23 +93,25 @@ namespace ColonyGame.World
             Settings=settings??new BootstrapSettings();
             Resources.TryTransaction("initial-wood",ResourceType.Wood,Settings.StartingWood);
         }
-        public bool CanStartFirstHut => !Settlement.Buildings.Any(b=>b.Type==BuildingType.BuildersHut)&&Resources.Amount(ResourceType.Wood)>=Settings.HutWoodCost;
+        public bool CanStartFirstHut => Resources.Amount(ResourceType.Wood)>=Settings.HutWoodCost;
         public bool TryStartFirstHut(TileCoordinate origin,int orientation,out BuildingState site)
         {
             site=null;
             if(!CanStartFirstHut || Settlement.ValidateBuildingPlacement(BuildingType.BuildersHut,origin,orientation)!=BuildingPlacementValidity.Valid) return false;
-            if(!Resources.TryTransaction("first-hut-materials",ResourceType.Wood,-Settings.HutWoodCost)) return false;
+            if(!Resources.TryTransaction("hut-materials-"+Guid.NewGuid().ToString("N"),ResourceType.Wood,-Settings.HutWoodCost)) return false;
             site=Settlement.AddConstructionSite(BuildingType.BuildersHut,origin,orientation,Settings.PlayerWorkSeconds);
+            site.Invest(new Dictionary<ResourceType,int>{{ResourceType.Wood,Settings.HutWoodCost}});
             return true;
         }
-        // Both actor kinds share work/progress; only the first Hut has an approved work requirement now.
+        // The player contributes only to initial Level 1 Hut construction.
         public bool ContributeWork(BuildingState site,ConstructionActor actor,double seconds,Citizen worker=null)
         {
             if(!BootstrapSettings.Finite(seconds)||seconds<0) throw new ArgumentOutOfRangeException(nameof(seconds));
             if(site==null||!Settlement.Buildings.Contains(site)||site.ConstructionStage!=ConstructionStage.UnderConstruction) return false;
+            if(Economy!=null) return Economy.ContributeWork(site,actor,seconds,worker);
             if(actor==ConstructionActor.Player)
             {
-                if(site.Type!=BuildingType.BuildersHut || Settlement.Buildings.First(b=>b.Type==BuildingType.BuildersHut)!=site) return false;
+                if(site.Type!=BuildingType.BuildersHut || site.IsUpgrading) return false;
             }
             else if(actor==ConstructionActor.Builder)
             {
@@ -116,14 +126,15 @@ namespace ColonyGame.World
         }
         public Citizen WorkerAt(BuildingState building)=>building==null?null:Roster.FirstOrDefault(c=>c.WorkplaceBuildingId==building.Id);
         public IEnumerable<Citizen> EligibleWorkers(BuildingState building)=>building!=null&&Settlement.Buildings.Contains(building)&&
-            building.Type==BuildingType.BuildersHut&&building.IsCompleted&&WorkerAt(building)==null
+            BuildingEconomyRules.Profession(building.Type)!=CitizenProfession.Unemployed&&building.IsCompleted&&WorkerAt(building)==null
             ?Roster.Where(AmbientWoodGathering.IsEligible):Enumerable.Empty<Citizen>();
-        public bool TryAssignBuilder(BuildingState building,string citizenId)
+        public bool TryAssignBuilder(BuildingState building,string citizenId)=>building!=null&&building.Type==BuildingType.BuildersHut&&TryAssignWorker(building,citizenId);
+        public bool TryAssignWorker(BuildingState building,string citizenId)
         {
             var citizen=EligibleWorkers(building).FirstOrDefault(c=>c.Id==citizenId);
             if(citizen==null) return false;
             citizen.WorkplaceBuildingId=building.Id;
-            citizen.Profession=CitizenProfession.Builder;
+            citizen.Profession=BuildingEconomyRules.Profession(building.Type);
             return true;
         }
         public string WorkplaceName(Citizen citizen)=>Settlement.Buildings.FirstOrDefault(b=>b.Id==citizen.WorkplaceBuildingId)?.Definition.DisplayName??"None";

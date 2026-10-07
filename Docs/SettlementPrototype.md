@@ -1,156 +1,283 @@
 # Settlement Prototype
 
-## Implemented now
+## Implemented milestone and scope
 
-Open the existing `Assets/Scenes/SettlementPrototype.unity` in **Unity 6000.6.4f1** after script import. No scene regeneration, package change, or ProjectSettings change is required. MainMenu/profile routing is unchanged. Runtime state resets on leaving Play Mode.
+Unity 6.6 / **6000.6.4f1**. Open the existing SettlementPrototype scene after script import; no regeneration is required. Menus/profiles, packages, ProjectSettings and serialized scene assets are unchanged. Runtime state resets after Play Mode.
 
-The playable bootstrap starts with 400 claimed Tiles (X/Z 0..19), completed 5 x 5 Town Hall at (7,7), four unemployed adults, and **10 Wood** stored logically in Town Hall. Town Hall remains **Level 4 TEST OVERRIDE**, not final new-game progression. Build (B), rotation (R), camera controls, Tile outlines, distinct schematic catalog visuals, citizen selection, entrances, recovery, and peaceful wildlife remain.
+Starts with **TH1**, 10 Wood, four existing adult identities, exactly 400 claims (0..19), Hall origin (7,7)/5 x 5, existing peaceful wildlife. All normal buildings and Town Hall reach L5. Cumulative unlock counts TH1..5 are **3/7/11/13/13**; TH5 introduces no new type.
 
-The catalog still offers 13 previews with cumulative 3/7/11/13 availability at Town Hall levels 1/2/3/4. Only the **first Builder's Hut** has approved playable construction. Other types and later Huts display deferred-construction feedback; no unspecified costs or instant normal construction are introduced. `TryPlacePrototypeBuilding` retains immediate completed placement exclusively as the existing domain test/fixture API, including all footprint/influence regressions. The old runtime instant placement behavior is superseded by the playable bootstrap.
+The player builds any number of initial L1 Huts for **25 Wood** and 300 base work seconds using held E during Day. NPC Builders perform ordinary construction and all upgrades. Explicit workplace assignment uses existing live Citizen objects. No auto-staffing, family/child system, physical player inventory, quests, combat, roads, research, magic or hauling is invented.
 
-## Domain and resource architecture
+## Domain and presentation architecture
 
 | File | Responsibility |
 | --- | --- |
-| `Assets/ColonyGame/World/SettlementBootstrap.cs` | Central prototype balance, extensible ResourceType/ResourceInventory transactions, storage identity, first-Hut start/work/completion, authoritative workplace assignment and live roster queries. |
-| `Assets/ColonyGame/World/AmbientWoodGathering.cs` | Task-specific boundary area, seeded/injectable random source, outbound/gather/return tasks and arrival-only delivery. |
-| `Assets/ColonyGame/World/SettlementState.cs` | Claimed Tile set, occupancy, oriented buildings, construction state/progress and one-time influence. |
-| `Assets/ColonyGame/World/PlayerInteraction.cs` | Central context-sensitive player intent: selected target, available action, discrete press, continuous hold and suppression. |
-| `Assets/ColonyGame/World/Citizen.cs` | Immutable identity/attributes, mutable profession/workplace and current task separate from movement. |
-| `Assets/ColonyGame/World/CitizenSimulation.cs` | Ordinary walking and safety/recovery; task controller can own authorized movement without changing idle eligibility. |
-| `Assets/ColonyGame/World/CitizenNavigation.cs` | Shared cardinal routing and weighted recovery searches. |
-| `Assets/ColonyGame/World/PeacefulWildlife.cs` | Wilderness-only wildlife, continuous expansion evacuation and nearest-citizen flee trigger. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/SettlementPrototypeView.cs` | Runtime composition, input/picking and completion-triggered presentation/reconciliation. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/PrototypeHud.cs` | Compact Wood HUD, Town Hall roster/overview, Hut work/assignment and Help panels with shared UI pointer blocking. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/PrototypeHelp.cs` | Presentation-only Help state and structured sections, reading existing balance/catalog data without mutating gameplay. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/CitizenView.cs` | Replaceable identity visuals, world selection and Builder apron/tool-belt overlay. |
-| `Assets/ColonyGame/Scripts/WorldPresentation/SchematicBuildingView.cs` | Oriented entrance/perimeter and incomplete/completed schematic visuals. |
+| World/BuildingEconomyRules.cs | Central cost scaling/exceptions, explicit TH costs, times, Builder rate, residence capacities/professions, production catalog and clock. |
+| World/SettlementEconomy.cs | Existing-state orchestration, paid jobs, production progress, schedules, bounded simulation steps, demolition and dismissal. |
+| World/SettlementPopulation.cs | Explicit residence links/reassignment and deterministic injectable Tavern arrivals/candidates/payments/expiry. |
+| World/SettlementBootstrap.cs | Balance, authoritative atomic inventory, player L1 Hut bootstrap and explicit profession assignment. |
+| World/SettlementState.cs | Building levels/investment, reserved occupancy, construction/upgrade state and permanent influence union. |
+| World/Citizen.cs and CitizenSimulation.cs | Immutable identity/attributes, live additions/removals, residence/interior/task links and shared continuous movement/recovery. |
+| World/AmbientWoodGathering.cs | Existing irregular-boundary trips, pending arrival-only Wood and night dispatch suppression. |
+| World/PlayerInteraction.cs | Central press/hold context; stale/dismissed/demolished targets produce no action. |
+| Scripts/WorldPresentation/SettlementPrototypeView.cs | Composition, input and presentation refresh; no economy state duplicated in GameObjects. |
+| Scripts/WorldPresentation/PrototypeHud.cs and PrototypeHelp.cs | Scrollable management, costs/affordability, staffing/housing/recruitment, confirmed destructive actions, debug speeds and Help. |
+| Scripts/WorldPresentation/CitizenView.cs | Dynamic roster figures, preserved base identity, profession equipment and work motion; hide actual sleepers. |
+| Scripts/WorldPresentation/SettlementAmbience.cs | Smooth world tint/lighting, sleeping windows/moons, sparse Wilderness glimmers and pooled work puffs. |
+| Scripts/WorldPresentation/SchematicBuildingView.cs | Existing distinct oriented sites/entrances, incomplete frames and schematic level trim. |
+| Scripts/WorldPresentation/PeacefulWildlifeView.cs | Night presentation suspension; existing wildlife domain retains Wilderness/recovery rules. |
 
-The world assembly has no Unity references. Resource transactions identify resource type, signed quantity and unique transaction ID; reject negative totals/overflow; and retry matching IDs without charging/crediting twice. A conflicting retry fails. Current storage identity is Town Hall, separate from inventory operations. Only Wood is functional. Successful gather results remain pending on the task until actual return. No stacks, player inventory, other-resource production or transfer logistics exist.
+The World assembly remains free of Unity references. One resource inventory serves the settlement; Warehouse is future logistics specialization, not a second balance. Bundle payment validates every resource/overflow before changing any amount. Matching transaction retry is idempotent; conflicting retry fails.
 
-## Citizen identity, management and assignment
+The existing immediate TryPlacePrototypeBuilding API remains a domain fixture only. Runtime construction pays, reserves and works. Higher TH initialization is explicit in old geometric fixtures; runtime starts TH1.
 
-Four stable prototype IDs belong to Edwin/Owen (Male) and Clara/Nora (Female). Seed 1147 generates ages 18..45 and independent integer Strength, Dexterity, Intelligence, Endurance, Charisma 1..10. Attributes have no gameplay effects. Initial free positions beside Town Hall are (6.5,6.5), (12.5,6.5), (6.5,12.5), (12.5,12.5), with deterministic claimed/free fallbacks when occupied.
+## Town Hall progression
 
-Click Town Hall for a separate compact management panel: test level, current claimed count, population, employed/unemployed counts, Wood, Town Hall storage, and scrollable roster containing every citizen exactly once. Every row displays actual name/sex/age/profession/workplace and all five attributes. Clicking a row opens the same citizen detail/selection used by clicking the world figure. Both query the same domain Citizen objects and refresh profession/workplace immediately.
-
-Click a completed Hut, choose **Assign Worker**, then explicitly choose any eligible unemployed adult. Incomplete/foreign/non-Hut buildings reject assignment. The citizen's workplace ID is authoritative; Hut worker and roster queries read it. The current panel allows one chosen worker per Hut; final staffing limits are TBD. Name, ID, sex, age, attributes, tunic/hair/base identity remain unchanged. A brown work apron and belt are added to that model. Other citizens remain unemployed. Assigned Builders take no new ambient trips; already pending Wood returns before ordinary behavior resumes. There are no NPC construction jobs yet.
-
-All building, citizen and roster panels use existing UI Toolkit styling and pointer guards. Placement has priority over world selection. Ordinary world picking prefers a citizen silhouette, otherwise the footprint under the ground ray. B clears inspection; Escape cancels placement and closes inspection. Closing/deselecting a site stops player work.
-
-## Gathering and prototype balance
-
-`BootstrapSettings` centralizes these replaceable prototype values:
-
-| Setting | Default |
+| Upgrade | Explicit payment |
 | --- | --- |
-| Starting Wood | 10 |
-| First Hut cost | 20 Wood |
-| Successful trip yield / chance | 2 Wood / 0.90 |
-| Maximum Wilderness depth | 10 Tiles |
-| First Hut required active work | 30 seconds |
-| Gathering pause | 3 seconds |
-| Cooldown after return | 18-32 seconds |
-| First dispatch delay / per-citizen stagger | 4 seconds / 6 seconds (4/10/16/22) |
-| Concurrent ambient trips | At most 2 |
-| Preferred candidate depth / sampling window | Depth 1-4 / nearest 24 reachable candidates |
-| Citizen detection radius for wildlife | 4 Tiles |
+| TH1->2 | 150 Wood |
+| TH2->3 | 300 Wood +100 Wool |
+| TH3->4 | 450 Wood +250 Wool +150 Stone |
+| TH4->5 | 600 Wood +350 Wool +250 Stone +100 Iron |
 
-Citizen movement defaults remain Inspector-configurable: 0.8 Tiles/second and idle pauses 1-3 seconds. Trip travel time depends on actual route length. The cooldown gives time for ordinary life between trips; income requires visible walking, gathering and returning, never passive town income.
+Prototype upgrades complete on resource payment only. Future quest prerequisites and construction are approved future direction, not implemented gates. TH5 is max.
 
-Unemployed active adults alone are eligible. Tasks are separate from profession: Idle/Wandering -> GatheringWoodOutbound -> GatheringWood -> ReturningWood -> ordinary behavior. Gathering rolls once after its pause, records 2 or 0 pending Wood, then routes to Town Hall. Deposit occurs exactly once on arrival. The oriented Town Hall exterior entrance is preferred. If another reserved footprint blocks it, a reachable claimed/unoccupied cell immediately adjacent to Hall is used as an outdoor delivery area; this grants no interior traversal.
+## Initial recipes and base construction times
 
-Depth is **multi-source cardinal BFS from actual claimed boundary cells**. Adjacent Wilderness has depth 1; cells beyond depth 10 are excluded. This follows irregular protrusions/holes/corners and updates when claim count changes; no Town Hall radius or bounding-box membership is used. Actual task paths also avoid reserved footprints and maintain 0.28-Tile body clearance. Ordinary idle policy remains claimed/unoccupied only. Nearby candidate sampling is a practical forest preference, independent of decorative tree objects, and never removes trees. Rendered Wilderness now extends beyond the full task-depth limit.
+| Building | Initial cost | Base seconds | Base minutes |
+| --- | --- | --- | --- |
+| Builder's Hut | 25 Wood | 300 | 5 |
+| House | 25 Wood | 300 | 5 |
+| Farm | 50 Wood | 360 | 6 |
+| Tavern | 100 Wood | 480 | 8 |
+| Butcher | 150 Wood | 480 | 8 |
+| Fisherman's Hut | 100 Wood | 420 | 7 |
+| Guard Tower | 75 Wood | 360 | 6 |
+| Warehouse | 150 Wood, 25 Wool | 600 | 10 |
+| Lumber Mill | 200 Wood, 100 Wool | 720 | 12 |
+| Mine | 250 Wood, 50 Wool | 720 | 12 |
+| Barracks | 150 Wood, 100 Wool | 600 | 10 |
+| Laboratory | 300 Wood, 150 Wool, 100 Stone, 50 Iron | 900 | 15 |
+| Mage Tower + Place of Power | 250 Wood, 100 Wool, 50 Stone, 100 Iron | 1080 | 18 |
 
-Safety recovery overrides gathering when a footprint covers a citizen. Interrupted task records preserve pending Wood, then replan return after recovery. Changed/claimed outbound destinations cancel gathering and return without inventing income. When no return route exists, the task retains pending Wood and waits/retries after access is restored. Already pending returns take precedence over new ambient work. Mandatory Builder work is a future scheduler extension.
+## Generated upgrade-cost table
 
-## Wildlife
+This table was generated by executing BuildingEconomyRules.Cost against the compiled domain assembly. Each cell is the payment for that target stage, **not cumulative investment**.
 
-Squirrel, Badger, Deer and Fox remain peaceful, decorative, resource-free, and Wilderness-only. Default population remains two of each with seed 731, no respawning or combat. The current threat is the nearest active citizen.
+| Building | Build L1 | To L2 | To L3 | To L4 | To L5 |
+| --- | --- | --- | --- | --- | --- |
+| Builder's Hut | 25 Wood | 50 Wood | 75 Wood, 50 Wool, 25 Stone | 100 Wood, 75 Wool, 50 Stone | 150 Wood, 100 Wool, 75 Stone, 50 Iron |
+| House | 25 Wood | 50 Wood, 25 Wool | 75 Wood, 50 Wool, 25 Stone | 100 Wood, 75 Wool, 50 Stone, 25 Iron | 150 Wood, 100 Wool, 75 Stone, 50 Iron |
+| Farm | 50 Wood | 75 Wood, 25 Wool | 100 Wood, 50 Wool, 25 Stone | 150 Wood, 75 Wool, 50 Stone, 25 Iron | 200 Wood, 100 Wool, 75 Stone, 50 Iron |
+| Tavern | 100 Wood | 150 Wood, 25 Wool | 200 Wood, 50 Wool, 25 Stone | 250 Wood, 75 Wool, 50 Stone, 25 Iron | 300 Wood, 100 Wool, 75 Stone, 50 Iron |
+| Butcher | 150 Wood | 200 Wood | 250 Wood, 50 Wool, 25 Stone | 300 Wood, 75 Wool, 50 Stone, 25 Iron | 350 Wood, 100 Wool, 75 Stone, 50 Iron |
+| Fisherman's Hut | 100 Wood | 150 Wood, 25 Wool | 200 Wood, 50 Wool, 25 Stone | 250 Wood, 75 Wool, 50 Stone, 25 Iron | 300 Wood, 100 Wool, 75 Stone, 50 Iron |
+| Guard Tower | 75 Wood | 100 Wood, 25 Wool | 150 Wood, 50 Wool, 25 Stone | 200 Wood, 75 Wool, 50 Stone, 25 Iron | 250 Wood, 100 Wool, 75 Stone, 50 Iron |
+| Warehouse | 150 Wood, 25 Wool | 200 Wood, 50 Wool | 250 Wood, 75 Wool, 25 Stone | 300 Wood, 100 Wool, 50 Stone, 25 Iron | 350 Wood, 150 Wool, 75 Stone, 50 Iron |
+| Lumber Mill | 200 Wood, 100 Wool | 250 Wood, 150 Wool | 300 Wood, 200 Wool, 25 Stone | 350 Wood, 250 Wool, 50 Stone, 25 Iron | 400 Wood, 300 Wool, 75 Stone, 50 Iron |
+| Mine | 250 Wood, 50 Wool | 300 Wood, 75 Wool | 350 Wood, 100 Wool, 25 Stone | 400 Wood, 150 Wool, 50 Stone | 450 Wood, 200 Wool, 75 Stone, 50 Iron |
+| Barracks | 150 Wood, 100 Wool | 200 Wood, 150 Wool | 250 Wood, 200 Wool, 25 Stone | 300 Wood, 250 Wool, 50 Stone, 25 Iron | 350 Wood, 300 Wool, 75 Stone, 50 Iron |
+| Laboratory | 300 Wood, 150 Wool, 100 Stone, 50 Iron | 350 Wood, 200 Wool, 150 Stone, 75 Iron | 400 Wood, 250 Wool, 200 Stone, 100 Iron | 450 Wood, 300 Wool, 250 Stone, 150 Iron | 500 Wood, 350 Wool, 300 Stone, 200 Iron |
+| Mage Tower + Place of Power | 250 Wood, 100 Wool, 50 Stone, 100 Iron | 300 Wood, 150 Wool, 75 Stone, 150 Iron | 350 Wood, 200 Wool, 100 Stone, 200 Iron | 400 Wood, 250 Wool, 150 Stone, 250 Iron | 450 Wood, 300 Wool, 200 Stone, 300 Iron |
 
-Approaching within **4 Tiles** interrupts ordinary pause or an active wandering segment. Safe destinations increase threat distance; when a deeper Wilderness alternative exists it is preferred over sideways escapes, then candidates rank by greater threat distance followed by depth. Segment/body checks reject claimed traversal. Running uses existing Inspector-configurable **1.8 x 0.65 = 1.17 Tiles/second**. Citizen fleeing continues until **6 Tiles** away (2-Tile safety margin), then ordinary pause/wandering resumes. These are prototype tuning values.
+Existing resource components increase +25 while below 100, then +50 at/above 100. Missing Wool/Stone/Iron normally enter at target L2/L3/L4 at 25 and continue that virtual curve. Builder's Hut Wood now uses the same 25/50/75/100/150 progression as House; the old special curve is removed.
 
-Expansion evacuation has priority: claiming underneath an animal starts continuous cardinal travel to the nearest valid Wilderness exit and a short deeper run. Claimed traversal permission ends as soon as the body is fully clear; citizen threat handling does not overwrite the evacuation route. Only impossible/broken states use warning-bearing relocation/dormancy. No animals die and no resources are awarded. The original abstract RequestFlee fixture remains covered by its existing tests.
+**Deferred exceptions:** Hut and Butcher omit Wool only at target L2 (later 50/75/100). Hut and Mine omit Iron only at target L4 (target L5 is 50). No curve resets after deferral.
 
-## Construction and influence
+**No-deadlock path:** ambient Wood -> Hut1 -> TH2 -> own Hut2 without Wool -> Butcher1/2 without Wool -> Wool -> TH3 -> Mine1 using Hut2 -> Stone -> Hut3/Mine3 -> TH4 -> own Hut4 without Iron -> Mine4 without Iron -> Iron -> TH5 -> Hut5. Mine1 must precede Hut3 because the latter requires Stone.
 
-Blueprint/Planned -> Under Construction -> Completed is the shared lifecycle. The current preview is an unpersisted blueprint; Town Hall starts Completed. Confirming a valid first Hut with sufficient stock immediately consumes **20 Wood once** and reserves all oriented **3 x 3** footprint cells, including its entrance/perimeter. Repeated input cannot create a second first Hut or charge again. It appears as foundation/posts/frame rather than a completed building. Influence is zero until completion.
+## Production and resource unlocks
 
-Select the site and **hold E (Interact / Action)**. This construction context uses the continuous form of universal interaction. The adapter passes active player work to the plain-C# contribution API; no fake player model/controller exists. The panel shows progress and remaining active seconds. Releasing E, closing/deselecting, opening Build or pressing Escape freezes stored progress. **15 active seconds + any pause + 15 active seconds** completes the 30-second requirement. Excess work is capped; later calls cannot complete or apply influence again.
+An appropriately assigned worker must physically reach valid completed-workplace access. Independent cycles persist across night/travel/absence. Every unlocked Farm crop continues concurrently; all producers use quantity = level - unlock level + 1. Fixed durations do not shrink on upgrade. Old levels/capacities remain active during an upgrade until completion.
 
-Completion switches visuals and applies only individual footprint-plus-3 Tiles once. For origin **(17,8)**, claims go **400 -> 427**, adding only X 20..22/Z 5..13; (20,4), (20,14), (23,8) remain Wilderness. Citizen connectivity and wildlife evacuation reconcile immediately. Starting Hall remains exempt, including repeated influence calls. Footprints remain normal outdoor obstacles; the exterior entrance is not reserved or an additional general placement requirement.
+| Resource | Producer / profession | Unlock building level | Cycle seconds | L1 | L2 | L3 | L4 | L5 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Beetroot | Farm / Farmer | 1 | 15 | 1 | 2 | 3 | 4 | 5 |
+| Wheat | Farm / Farmer | 2 | 30 | - | 1 | 2 | 3 | 4 |
+| Potato | Farm / Farmer | 3 | 45 | - | - | 1 | 2 | 3 |
+| Carrot | Farm / Farmer | 4 | 60 | - | - | - | 1 | 2 |
+| Meat | Butcher / Butcher | 1 | 30 | 1 | 2 | 3 | 4 | 5 |
+| Wool | Butcher / Butcher | 2 | 45 | - | 1 | 2 | 3 | 4 |
+| Fish | Fisherman's Hut / Fisher | 1 | 30 | 1 | 2 | 3 | 4 | 5 |
+| Wood | Lumber Mill / Lumberjack | 1 | 30 | 1 | 2 | 3 | 4 | 5 |
+| Stone | Mine / Miner | 1 | 45 | 1 | 2 | 3 | 4 | 5 |
+| Iron | Mine / Miner | 4 | 60 | - | - | - | 1 | 2 |
 
-The previous entrance/recovery foundation is retained: canonical south lower-middle entrance rotates with footprint through all four quarter turns, with visible opening/posts/threshold. Shared weighted recovery favors fewer occupied cells, then travel cost with bounded entrance preference; safety routes may exceptionally cross reserved cells only along that citizen's recovery whitelist. Largest connected claimed/free component is the ordinary anchor, with deterministic Town Hall access preference on ties. Covered/sealed citizens move continuously without position jumps. Impossible/broken routes alone warn and relocate/dormant; no interiors, house ownership, night schedules, or normal footprint traversal are added.
+Wood is always obtainable from ambient gathering. Other UI/request availability requires an actually completed producer at the product's unlock level. Remaining starting balances are zero. No resource production is assigned to Tavern, Warehouse, Hut, military, Laboratory or Mage site. Warrior/Scientist/Mage workplace links/equipment exist; their functional systems remain future.
 
-## Approved future design and TBD
+## Builder work and construction
 
-Future physical player interaction, range/tool requirements, manual resource transport, inventories, dialogue, fishing, exploration and direct-action quests remain future systems. Both Player and Builder actor kinds share the same domain contribution/progress foundation, so physical player input and NPC work can later supply work without duplicating construction. No NPC job dispatch/travel/work loop or other building costs are invented.
+Required work = base seconds x target level: initial x1, L1->2 x2, L2->3 x3, L3->4 x4, L4->5 x5.
 
-Before Warehouse, Town Hall stores resources. After the first completed Warehouse, it will become the primary storage/logistics center; transfer behavior, Courier automation, capacities and delivery priorities remain TBD. All normal later construction belongs to assigned Builder NPCs. Final costs/durations, worker limits, construction range, upgrades, cancellation/refunds, final cadence and polished UI/art remain TBD. There are no functional professions beyond Builder, other resources/production, families/children, needs, relationships, day/night, interiors, predators/combat, quests, upgrades, demolition, roads, streaming, saving or player inventory.
+Work rate = level efficiency x personal efficiency:
 
-## Universal player interaction
+- Level efficiency = 1 + .20 x max(0, BuilderHutLevel - currentBuildingLevel).
+- Personal efficiency = .90 + (Strength + Dexterity + Endurance)/150.
+- Initial construction uses current level 1.
+- 5/5/5 =1.00; 1/1/1 =.92; 10/10/10 =1.10.
+- House L1->2 requires 600 work; neutral Hut L1 rate1 gives 600 active seconds, Hut L4 rate1.6 gives 375; strong Hut L4 rate1.76 gives about 340.91.
 
-**E = Interact / Action**, the canonical context-sensitive player intent rather than a dedicated construction key. One plain-C# PlayerInteraction owns the selected building/citizen target, derives the available interaction from current state, and receives press/hold intent through one keyboard adapter in SettlementPrototypeView. No unrelated system checks E independently. Future physical-player target resolution can use the same path; no player model, distance/tool checks, dialogue, storage logistics or item interactions are added now.
+One Builder/job and one job/Builder, independent jobs in parallel. Own Hut may be upgraded one level above itself if Town Hall permits; other upgrades need Hut at target level. Attributes never bypass costs, unlocks or caps. Builders walk to access before contributing; no passive completion. Night pauses stored work. Player cannot upgrade any building or manually construct ordinary types.
 
-| Selected valid context | Input | Current result |
-| --- | --- | --- |
-| Town Hall | Press E | Open settlement management. |
-| Completed Builder's Hut | Press E | Open workplace management; assignment still needs Assign Worker and an explicit citizen choice. |
-| Citizen | Press E | Show existing citizen information without changing identity or employment. |
-| Incomplete first Builder's Hut | Hold E | Contribute active manual work through the existing construction API. |
-| No target / unsupported future building | E | No action. |
+Initial footprint reserves immediately, remains an outdoor obstacle, and grants footprint-plus-three influence only at completion. At Hut origin (17,8), initial completion still changes claims 400->427 once. Upgrade changes level after work only and grants no influence. Trees disappearing after claims grant no resources.
 
-Discrete contexts use the press edge, not repeated held frames. Construction consumes held time; press-only intent without hold does not add work. Release freezes accumulated progress. On completion the available action becomes workplace management, and continuing the same hold neither repeats completion nor automatically opens/assigns a worker.
+Paid unfinished jobs whose Builder is dismissed or loses their Hut retain progress/materials, await a qualified replacement and never retain that citizen reference.
 
-Existing left-click inspection remains available. The prototype uses the selected target, without physical range requirements. Closing building management preserves the target; a fresh E press reopens it. Closing a construction panel stops an existing held action until a fresh E press or mouse selection reopens it. Opening Help preserves the target but suppresses all E intent, including the closing Help frame. Placement/Build mode also suppresses interaction. Pointer guards still prevent selection or placement underneath visible panels.
+## Housing, population and dismissal
 
-Future citizen dialogue/quests and other approved physical-player interactions will extend this same primary action. They are not currently available.
+| Residence | L1 | L2 | L3 | L4 | L5 |
+| --- | --- | --- | --- | --- | --- |
+| Town Hall | 4 | 5 | 6 | 7 | 8 |
+| House | 2 | 3 | 4 | 5 | 6 |
+| Tavern | 3 | 4 | 5 | 6 | 7 |
 
-Manual interaction checks:
+Starting Edwin/Owen/Clara/Nora live in Town Hall. Their names/sex/ages/base attributes preserve seed 1147. Residence IDs are explicit; capacity is summed from completed residences. Manual reassignment changes the link, not outdoor position. Demolition reassigns displaced residents; overflow becomes Homeless without deleting/teleporting citizens. Homeless citizens remain outside near Town Hall at night.
 
-1. Click Town Hall, close its panel, then press E: management reopens. Holding E thereafter must not repeatedly recreate the panel or change resources/territory.
-2. Click a completed Hut, close management, then press E. Confirm no citizen is automatically assigned; use Assign Worker and choose a specific citizen. Press E again and verify the assigned worker remains unchanged.
-3. Click each citizen and press E. Verify existing information and unchanged ID/name/sex/age/attributes/profession. Mouse inspection must still work normally.
-4. Select an incomplete first Hut and hold E. Confirm continuous work, interruption/resume, exactly one completion/influence, then a new E press opens workplace management. Continuing the completing hold must not assign anyone.
-5. Close the incomplete site's panel while holding E: work stops. Release and press E again to reopen/resume. Open Help and press/hold E in each context: no interaction or work. H/Escape close Help without clearing the target or contributing work on that closing frame.
-6. With Build/placement active, press E: no interaction/assignment/work. Retest rotation, mouse placement, UI click-through guards and contextual Escape. No scene regeneration is required.
+Permanent dismissal uses a named two-step confirmation in citizen inspection. It removes live roster membership, workplace, residence, gathering records, active job reference and visual figure; frees capacity; does not add a historical database or automatically replace anyone.
 
-## Help & Hints
+## Clock, schedules and ambience
 
-Press **H** or click the compact **Help [H]** HUD button to toggle the same Help state. **Escape** while Help is open closes only Help; the panel also has a **Close** button. H/Escape are consumed on the closing frame so they cannot also cancel placement or trigger a gameplay shortcut. Help starts closed.
+Day =420 simulation seconds; Night =180; cycle =600. Starts Day1. HUD exposes game day, phase and normalized phase progress. Speeds 1/2/4/8/16 scale simulation only; movement is subdivided into <=.1-second steps and split at phase boundaries. UI/input does not use Unity Time.timeScale.
 
-The runtime UI Toolkit overlay uses the existing prototype styling, a readable title, section headings, scrollable content, Close button, and prototype-balance footer. It is sized to the viewport rather than a full-screen opaque backdrop. Transparent space outside the visible panel retains world input. Its visible panel participates in the existing pointer-blocking set: clicks cannot select/place underneath, wheel input scrolls Help without camera zoom, and middle-drag over it cannot pan the camera.
+Night stops production, Builder work and new ambient dispatch. A pending Wood trip returns first. Citizens walk home to real exterior access, become logically inside and disappear outdoors while sleeping. Morning uses a valid exterior location before resuming work; blocked access defers exit. Footprints remain obstacles; rendered interiors are future work.
 
-Sections: **Start Here** (prominent Town Hall and first-Hut hints), **Controls**, **Gameplay / Prototype Balance**, **Building**, the four **Town Hall newly unlocked building groups**, **Citizens**, and **Wildlife**. Balance values come from BootstrapSettings; names/footprints/unlocks come from BuildingCatalog. The reference describes only current functionality, including the Level 4 TEST OVERRIDE and deferred subsequent construction. It does not imply Town Hall upgrades or future systems are implemented.
+World palette/ground tints and directional intensity transition smoothly to readable night. UI is unchanged. Actual sleeping residences have warm subtle point/window lighting; per-resident procedural moon phases vary with attributes/presentation time. Profession layers preserve hair/face/tunic identity. Work motion and small pooled dust puffs are schematic; no heavy particles or gore. Player-held construction has a matching puff.
 
-Documented controls are the actual source controls: WASD/arrow camera movement, middle-drag pan, wheel zoom, left-click contextual selection/placement, B Build toggle, R quarter-turn rotation, E universal/context-sensitive Interact / Action (press for inspection/management, hold for first-Hut work), H Help toggle, and contextual Escape. While Help is open, B/R/E and keyboard camera movement are blocked. Citizen/wildlife/gathering simulation continues at its usual rate; there is no time-scale or pause change. Manual work requires its active input, so Help suppresses E contributions while preserving accumulated construction progress.
+Wildlife view/ticks suspend at night; morning reconciles Wilderness eligibility before rendering. Sparse seeded presentation-only firefly positions blink at different phases, refresh periodically and check current claims. No predators/hunting/loot are added.
 
-Opening Help temporarily hides Build/placement/citizen/building inspection panels without clearing their underlying state, selected citizen, managed building, worker-choice state, or placement orientation. Closing restores the applicable panels. The compact HUD remains available; Build is disabled while Help is open. The Help state/content class has no Unity rendering or simulation ownership; content is rendered as individual sections rather than a giant input-handler text blob.
+## Tavern arrivals and requests
 
-Manual Help checks:
+**Each completed Tavern independently rolls 10% once per completed game day**, using injected randomness. Two Taverns can both attract separate visitors. With N Taverns, chance of at least one arrival is 1 - .9^N; expected arrivals per day is .1 x N. Level affects candidate quality/request tier rather than the 10% base chance.
 
-1. Let Unity import PrototypeHelp.cs and PrototypeHelpStateTests.cs and generate their `.meta` files. Run all 117 World EditMode tests; no scene regeneration is required.
-2. Enter SettlementPrototype: Help is initially closed and **Help [H]** is visible. Open/close with H and the button; open then close using Escape and Close. Confirm Escape closes Help without clearing a prior placement or inspection.
-3. Scroll through every section. Verify actual controls, Town Hall roster/storage hint, first-Hut sequence, prototype values, cumulative Level 1-4 unlock groups/footprints, Level 4 test label, citizen and wildlife rules. Check readability and access to Close at normal and smaller window sizes.
-4. Over the panel, scroll at both content ends: the camera must not zoom. Middle-drag must not pan; clicks on title/content/padding/Close must not select citizens/buildings or place beneath it. Transparent outside space should remain usable.
-5. Select a rectangular placement preview, rotate it, then open Help. Press B/R/E while reading: Build state, orientation and work must not change. Close Help and verify the original placement/rotation continues. Retest normal B/R/E after closing.
-6. Open Town Hall or citizen inspection, then Help. Confirm large panels hide and return with the same selection on close. Repeat from Hut worker-choice UI and a partially worked construction site; progress must remain stored and E must not add work while Help is open.
-7. Keep Help open long enough to observe citizens/wildlife walking and gathering deliveries in the HUD. Confirm no simulation pause. Close and resume inspection/construction normally. Check Console and smoke-test existing menu/profile flows.
+Candidates have stable temporary IDs and independent adult identity/attributes. For each attribute, draw uniform 1..10; with probability .15 x (TavernLevel-1), use max(first, second independent draw). This raises average high-tier quality while allowing both lucky low-tier and imperfect high-tier people.
 
-## Validation and manual Unity acceptance
+Quality =mean five attributes. Target budget =25 x TavernLevel; multiply by clamp(.75 +quality/20,.75,1.25), round away from zero. Select 1..3 distinct allowed resources, split budget, divide by values (Wood/food1, Wool/Stone2, Iron4), floor quantities with minimum1. Integer rounding permits small value deviations. Requests stay fixed.
 
-Source validation uses Unity's bundled compiler/runtime and installed NUnit. The 72 existing territory/catalog/placement/wildlife/citizen/entrance/recovery tests remain unchanged. Added SettlementBootstrapTests and CitizenWildlifeFleeTests cover resource retry/overflow/negative checks, first-Hut placement/work/influence, explicit identity-preserving employment/live roster, gathering authorization/boundary/arrival-only delivery/random injection/recovery, and citizen-triggered wildlife safety/evacuation. **117 NUnit tests passed, 0 failed (109 existing + 8 interaction tests)**. PlayerInteractionTests cover press versus hold, Town Hall/workplace/citizen contexts, completion context changes, suppression, explicit assignment and unrelated-state preservation. The new presentation-state tests cover initial state, shared toggle/key consumption, contextual Escape, simultaneous-key priority and unchanged settlement/citizen/construction state. Static content strings and pixel positions are not tested. Domain, Unity presentation/Editor source, and the separate test assembly compile without compiler warnings or errors against installed Unity 6000.6.4f1 assemblies. `git diff --check` passes; this does not establish Editor import or Play Mode visual correctness.
+Eligibility requires actual completed producer/product unlock and Tavern tier >= both producer TH unlock and resource building unlock. Wood always qualifies. A low Tavern never asks for future Wool/Stone/Iron/crops. Availability is domain-derived, not a UI resource list.
 
-The known Editor licensing/sandbox limitation remains; licensing/security settings are unchanged. Use the normal Editor:
+Candidates are not roster/population/housing until recruited. Stay is three full game days (arrival day +3 expiry); no departed history. Tavern UI shows identity, attributes, request, remaining days and payment/housing availability. Recruit checks full payment and free residence, consumes once, preserves the candidate's identity as permanent citizen and removes candidate state. Full housing blocks payment; never auto-replace.
 
-1. Exit Play Mode, allow import/compilation, and let Unity generate `.meta` files for the new PlayerInteraction source/test files. Retain these before any later commit. Do not regenerate the existing scene/materials. Run all World EditMode tests in Test Runner and check Console.
-2. Open SettlementPrototype and enter Play Mode. Confirm Wood **10**, 400 claims, one completed Hall, four unemployed adults, and TH Level **4 TEST OVERRIDE**. Click Town Hall: total 4/employed 0/unemployed 4, storage Town Hall, four unique complete roster entries. Click each roster row and each world figure; compare all five actual attributes and name/sex/age.
-3. Observe staggered trips: walking into Wilderness, short pause, visible return, then **+2** only at Hall access on success; failure gives +0. Inspect citizen Task in the detail panel. Ordinary citizens between trips remain claimed-only. Trip destinations stay within the actual 10-Tile boundary depth; decorative trees remain intact. Wait for Wood to reach at least **20**.
-4. Observe wildlife near gathering citizens. Confirm all four species can interrupt pauses/walks, run away/deeper at the faster speed, avoid claims, and resume wandering after safety. Check for position jumps or ordinary emergency warnings.
-5. Before 20 Wood, preview the Hut and confirm clear insufficient-resource feedback with no reservation/charge. At 20+, choose Hut, move origin to **(17,8)**, optionally rotate R, and confirm placement. Exactly 20 Wood is debited, footprint is 3 x 3 with correctly rotated entrance, incomplete frame appears, and claims remain **400**. Attempt overlaps/second-Hut confirmation; no extra charge. Other catalog entries remain previews with deferred-construction feedback.
-6. Select the site and hold **E for about 15 seconds**. Confirm roughly 50%/15 seconds remaining. Release for at least 10 seconds; progress must freeze. Deselect/close/reselect and check it persists. Resume E for the remaining work; completed visual appears and claims become **427 once** at the test origin. Holding E further changes neither progress nor influence. Check citizen recovery and wildlife expansion evacuation remain continuous; new trees vanish with no Wood reward.
-7. Click completed Hut -> **Assign Worker** -> explicitly choose a citizen. Confirm that exact person becomes Builder, receives the Hut workplace and visible work apron/belt, retaining identity, sex, age and all attributes. Hut shows that worker; Town Hall roster and world info immediately agree; other citizens stay unemployed. A Builder finishes already pending return, then stops receiving ambient trips.
-8. Retest UI padding/buttons/scroll, transparent-space world clicks, B/R/E/Escape, camera pan/zoom, Tile outlines/Gizmos, and placement priority. UI actions must not place/select behind panels or zoom the world while scrolling UI. Click another object or close site while E is held and verify work stops.
-9. Restart Play Mode: initial state and deterministic identities reset. Smoke-test MainMenu/profile/settings without changed routing. Check Console for compilation/runtime/shader/material/input errors and duplicate AudioListeners. Manually exercise the same cases at different window sizes.
+## Demolition, storage and controls
 
-Generic placement and chained multi-type expansion remain domain fixture tests. The playable runtime intentionally waits for approved future recipes/NPC construction before allowing subsequent normal buildings.
+Completed ordinary buildings can be demolished after confirmation, refunding floor(50%) **per accumulated resource actually invested** in initial construction and completed upgrades. Example House L3 investment Wood150/Wool75/Stone25 returns75/37/12. Upgrades in progress must finish first. Claims remain permanent; only occupancy is removed. Workers become Unemployed, homes reassign/homeless and demolished Tavern candidates leave. The prototype Town Hall remains protected as its storage/management anchor; future anchor replacement/destruction is not implemented.
+
+One central inventory remains authoritative with any Warehouses; hauling/logistics/capacity is future work.
+
+E remains centralized universal Interact/Action: press for selected completed building/citizen; hold only initial L1 Hut work. Closing construction panel stops held work until a fresh press/selection. B Build, R rotation, H Help, contextual Escape and camera/pointer guards remain. Help describes the new milestone, is scrollable, hides other large panels without clearing state and blocks world shortcuts while simulation continues.
+
+## Approved future and tunable/TBD
+
+Future: physical player/controller/transport/tools, dialogue/quests, Town Hall quest prerequisites/construction, families/children/needs, skill progression, Courier hauling, Cook meals, combat/predators, research/magic, rendered interiors, saving/streaming/full 3D camera perspectives.
+
+Tunable prototype decisions: arrival quality/request weights and bounded budgets, cadence, base times, simple ambience/clothing/level trim, one worker/workplace. Undefined additional staffing/limits/prerequisites, cancellation UI, production inputs/storage blocking/offline work and non-production benefits remain TBD. No new buildings are invented.
+
+## Validation
+
+Affected domain, presentation/Editor source and separate NUnit test assembly compiled against installed Unity 6000.6.4f1 assemblies without compiler errors or warnings. Standalone Mono/NUnit execution passes **165 tests, 0 failures**: all 117 existing tests retained (fixtures/assertions deliberately migrated) plus 48 new deterministic economy tests.
+
+New tests cover approved recipes/TH costs, exact Hut/House/Warehouse curves/exceptions, producer dependency path, all production definitions and actual L5 outputs, staffing/multiple producers/night pause, Builder gates/jobs/efficiency/times, capacity/assignment/sleep/exit, speeds, independent daily Tavern rolls, deterministic candidates/expiry/tiers/payment/housing, dismissal/job reassignment, refunds/claims/refs and stale interactions. An end-to-end job/production test reaches TH5 and Hut5 using only Wood supplied by the fixture: all Wool, Stone and Iron are produced by assigned workers. Night residence reassignment also exits without teleporting and walks to the new home. These are source/domain checks, not proof of Editor import, shader import or Play Mode visuals.
+
+Known Editor licensing/sandbox limitations remain unchanged. **Manual Editor import and Play Mode acceptance are still required.** Let Unity generate new .meta files; do not regenerate existing assets/scenes or manually author metadata.
+
+## Manual Play Mode acceptance checklist
+
+1. Exit Play Mode and allow Unity to import all new scripts/tests and generate their .meta files; verify Console and run World EditMode tests.
+2. Open existing SettlementPrototype, enter Play Mode: TH1, Wood10, four citizens, 400 claims and original Hall.
+3. Confirm all four starting residents belong to Town Hall and population/capacity is4/4; compare identity/attributes with roster.
+4. Observe successful ambient trips giving +3 Wood only on return, failure +0, existing staggering/depth/cooldowns.
+5. At Wood25 place an L1 Hut, verify one25 debit and reserved3x3 without early influence; hold E during Day for300 base work seconds.
+6. Release/close/deselect/Help interrupts work; progress persists; completion at(17,8) claims427 once.
+7. Build another L1 Hut manually; confirm no single-Hut restriction and no dependence on idle NPC Builders.
+8. Assign one specific Builder through workplace UI; verify identity/profession/equipment and already pending Wood delivery.
+9. Accumulate150 Wood, buy TH2; verify exact payment, current level2 and cumulative7 unlocked types.
+10. Upgrade own Hut L2 for50 Wood, no Wool; player E cannot upgrade; NPC walks/works.
+11. Build ordinary House/Farm/Butcher using Builder; player cannot directly work them, no instant completion.
+12. Verify one Builder/job; add another Hut/Builder and run separate jobs concurrently.
+13. Build Butcher L1, assign Butcher: Meat only; upgrade L2 without Wool and confirm Wool production.
+14. Confirm Butcher next Wool costs50, then75 and100; no curve reset.
+15. Build House/Tavern, verify occupancy and total capacity; assign another residence without teleporting.
+16. Accumulate Wood300/Wool100, buy TH3; cumulative11 types.
+17. Build Mine L1 with Hut2 Builder and produce Stone before trying Hut3 cost.
+18. Upgrade Hut3, Mine2/3; ensure TH cap and Hut target-level restrictions cannot be bypassed.
+19. Buy TH4 for450Wood/250Wool/150Stone; cumulative13 types.
+20. Upgrade Hut4 with no Iron, Mine3->4 with no Iron; assign Miner and confirm Iron only begins atL4.
+21. Confirm Mine4->5 and Hut4->5 each include50Iron.
+22. Buy TH5 for600Wood/350Wool/250Stone/100Iron; max state; no new type.
+23. Upgrade Hut5 and normal buildings toL5; no upgrade beyond5 and no footprint/influence change.
+24. Inspect every initial/upgrade recipe against generated table and missing-resource UI; failed payment changes no partial totals.
+25. Confirm base-time table and upgrade target multipliers; strong/weak Builders affect duration without bypassing gates.
+26. Farm L1..5: verify unlocked crops/cycle times/quantities, including simultaneous old crops and L5 5/4/3/2.
+27. Verify Meat/Wool, Fish, Wood and Stone/Iron cycles; no production without explicit appropriate worker.
+28. Run two identical producers and verify independent progress/output.
+29. Confirm all ten resources in Hall, obtainable amounts versus Requirements are not met yet; Warehouse does not double totals.
+30. Observe Day420/Night180 at1x; phase progress/day counter at correct boundaries.
+31. At night production and construction stop, partial progress remains; no new ambient trip.
+32. Verify pending gathering deliveries finish before returning home and homes do not consume imaginary capacity.
+33. Housed citizens walk to exterior, sleep logically inside and disappear; morning exit returns through currently valid access.
+34. Block an entrance and check safe fallback/recovery; footprints never become ordinary walkable ground.
+35. Create housing loss and confirm homeless citizens remain outside near Hall, not deleted/teleported.
+36. Observe smooth readable darkening, unchanged UI, occupied sleeping window lights and unoccupied/daytime lights off.
+37. Verify per-resident moon/dream phases and gentle presentation; only actual sleepers.
+38. Wildlife rests off-screen at night; morning resumes valid Wilderness, including expansion/recovery cases.
+39. Observe sparse unsynchronized Wilderness firefly glimmers, no claimed/building spawn or bright glare.
+40. Test1x/2x/4x/8x/16x: clock/jobs/production/trips/expiry accelerate; UI/camera input remains usable without movement jumps.
+41. Build Tavern and advance days: independent10% roll per completed Tavern once/day, never per frame or one settlement-wide roll.
+42. Use multiple Taverns; confirm separate candidates may arrive on same day; level affects quality/requests.
+43. Inspect candidate identity/attributes/request/remaining days; candidate not in population/residence before recruitment.
+44. Confirm three full day stay and expiry removal; no retained departed history.
+45. Low-tier Tavern must not request future resources; exact bundle remains stable during stay.
+46. Gather complete bundle; recruit with free housing; payment once, same person added to roster, assigned residence and visible outdoors.
+47. Repeat Recruit and check no double charge/addition; insufficient bundle changes no partial resource.
+48. Fill residential capacity; recruitment must be blocked without payment; expand housing or dismiss first.
+49. Select citizen, click dismissal and inspect named confirmation; only confirm intentionally.
+50. Confirm permanent disappearance, freed housing, cleared workplace/gather/job references and no automatic return/replacement.
+51. Dismiss a busy Builder, assign replacement; paid unfinished job resumes retained progress without duplicate payment.
+52. Inspect upgraded building cumulative refund and confirmed demolition; odd invested amounts floor per resource.
+53. Confirm demolished footprint is freed but territory stays claimed; rebuilding grants only genuinely unclaimed influence.
+54. Demolish workplace/home/Tavern: workerUnemployed, residence reassignment/homeless, waiting candidatesleave, permanent citizensremain.
+55. Retest B/R/E/H/Escape, panel scrolling/close/click-through, camera, Tile outlines, wildlife flee/evacuation and trapped-citizen recovery.
+56. Repeat at smaller viewport sizes: every scrollable management action/confirmation/Close remains reachable.
+57. Check profession equipment and active worker/player construction feedback without identity changes or heavy particles.
+58. Restart Play Mode for initial reset; smoke-test unchanged MainMenu/profile/settings routes and Console errors.
+
+Nothing is staged, committed or pushed as part of this milestone.
+
+## Files changed for this milestone
+
+Created:
+
+- Assets/ColonyGame/Scripts/WorldPresentation/SettlementAmbience.cs
+- Assets/ColonyGame/Tests/Editor/SettlementEconomyTests.cs
+- Assets/ColonyGame/World/BuildingEconomyRules.cs
+- Assets/ColonyGame/World/SettlementEconomy.cs
+- Assets/ColonyGame/World/SettlementPopulation.cs
+
+Modified:
+
+- Assets/ColonyGame/Scripts/WorldPresentation/CitizenView.cs
+- Assets/ColonyGame/Scripts/WorldPresentation/PeacefulWildlifeView.cs
+- Assets/ColonyGame/Scripts/WorldPresentation/PrototypeHelp.cs
+- Assets/ColonyGame/Scripts/WorldPresentation/PrototypeHud.cs
+- Assets/ColonyGame/Scripts/WorldPresentation/SchematicBuildingView.cs
+- Assets/ColonyGame/Scripts/WorldPresentation/SettlementPrototypeView.cs
+- Assets/ColonyGame/Tests/Editor/BuildingAccessRecoveryTests.cs
+- Assets/ColonyGame/Tests/Editor/BuildingCatalogTests.cs
+- Assets/ColonyGame/Tests/Editor/CitizenTests.cs
+- Assets/ColonyGame/Tests/Editor/CitizenWildlifeFleeTests.cs
+- Assets/ColonyGame/Tests/Editor/HousePlacementTests.cs
+- Assets/ColonyGame/Tests/Editor/PeacefulWildlifeTests.cs
+- Assets/ColonyGame/Tests/Editor/PlayerInteractionTests.cs
+- Assets/ColonyGame/Tests/Editor/PrototypeHelpStateTests.cs
+- Assets/ColonyGame/Tests/Editor/SettlementBootstrapTests.cs
+- Assets/ColonyGame/Tests/Editor/SettlementStateTests.cs
+- Assets/ColonyGame/World/AmbientWoodGathering.cs
+- Assets/ColonyGame/World/Citizen.cs
+- Assets/ColonyGame/World/CitizenSimulation.cs
+- Assets/ColonyGame/World/PlayerInteraction.cs
+- Assets/ColonyGame/World/SettlementBootstrap.cs
+- Assets/ColonyGame/World/SettlementState.cs
+- Docs/SettlementPrototype.md
+- Docs/WorldAndSettlementDesign.md
+- README.md
+
+Pre-existing untracked PlayerInteraction.cs.meta and PlayerInteractionTests.cs.meta were preserved. Unity still needs to generate metadata for the five new source/test files. Packages, ProjectSettings, scene assets and Git configuration were not changed.

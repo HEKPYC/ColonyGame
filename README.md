@@ -1,6 +1,6 @@
-﻿# ColonyGame
+# ColonyGame
 
-A Unity Universal 3D project. The project includes the initial application-shell source: main menu, profiles, settings, and lobby audio. Colony gameplay has not been implemented. See [application shell setup and validation](Docs/MenuShell.md) for the required scene setup and test checklist.
+A Unity Universal 3D project. The project includes the initial application-shell source: main menu, profiles, settings, and lobby audio. The standalone settlement prototype includes economy, Town Hall/building progression, production, Builder jobs, housing, Tavern recruitment and day/night. See [settlement implementation and Play Mode checklist](Docs/SettlementPrototype.md). See [application shell setup and validation](Docs/MenuShell.md) for the required scene setup and test checklist.
 
 ## Requirements
 

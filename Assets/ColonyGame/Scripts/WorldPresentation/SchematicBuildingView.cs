@@ -9,6 +9,7 @@ namespace ColonyGame.Presentation
     public sealed class PrototypePalette
     {
         private readonly Material source;
+        private float nightAmount;
         private readonly Dictionary<Color, Material> materials = new Dictionary<Color, Material>();
         public PrototypePalette(Material source) { this.source = source; }
         public Material Get(Color color)
@@ -16,10 +17,16 @@ namespace ColonyGame.Presentation
             if (!materials.TryGetValue(color, out var material))
             {
                 material = new Material(source) { name = "Runtime schematic color" };
-                material.SetColor("_BaseColor", color);
+                material.SetColor("_BaseColor", Tint(color));
                 materials.Add(color, material);
             }
             return material;
+        }
+                private Color Tint(Color color)=>color*Color.Lerp(Color.white,new Color(.55f,.6f,.75f,1),nightAmount);
+        public void SetNightAmount(float amount)
+        {
+            nightAmount=amount;
+            foreach(var pair in materials) pair.Value.SetColor("_BaseColor",Tint(pair.Key));
         }
         public void Dispose() { foreach (var material in materials.Values) UnityEngine.Object.Destroy(material); }
         public static GameObject Shape(Transform parent, string name, PrimitiveType type, Vector3 position, Vector3 scale, Material material)
@@ -97,6 +104,12 @@ namespace ColonyGame.Presentation
                     foreach(float z in new[]{.2f,.8f}) box("Unfinished frame post",x,z,.045f,.045f,.75f,Wood);
                 box("Unfinished frame beam",.5f,.8f,.64f,.05f,.8f,new Color(.72f,.51f,.22f));
                 return;
+            }
+            for(int tier=1;tier<building.Level;tier++)
+            {
+                float x=building.Type==BuildingType.MageTower?.3f*w:.5f*w;
+                PrototypePalette.Shape(site.transform,"Level "+(tier+1)+" trim",PrimitiveType.Cube,
+                    new Vector3(x,1.15f+tier*.12f,.55f*d),new Vector3(building.Type==BuildingType.MageTower?.28f*w:.35f*w,.035f,.32f*d),palette.Get(Cream));
             }
             switch (building.Type)
             {

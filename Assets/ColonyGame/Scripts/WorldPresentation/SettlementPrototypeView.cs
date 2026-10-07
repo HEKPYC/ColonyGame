@@ -24,6 +24,8 @@ namespace ColonyGame.Presentation
         [SerializeField, Min(0)] private float citizenMaximumPause = 3f;
         private readonly BootstrapSettings bootstrapSettings = new BootstrapSettings();
         private SettlementBootstrap bootstrap;
+        private SettlementEconomy economy;
+        private SettlementAmbience ambience;
         private CitizenSimulation citizens;
         private CitizenView citizenView;
         private PlayerInteraction playerInteraction;
@@ -71,9 +73,12 @@ namespace ColonyGame.Presentation
             citizenView = new CitizenView(transform, citizens, palette);
             bootstrap = new SettlementBootstrap(State,citizens,bootstrapSettings);
             citizens.Gathering = new AmbientWoodGathering(bootstrap);
+            economy = new SettlementEconomy(bootstrap);
+            economy.PresentationChanged += RefreshPresentation;
+            ambience = new SettlementAmbience(transform,economy,palette,tileMaterials);
             playerInteraction = new PlayerInteraction(bootstrap);
             hud.BindBootstrap(bootstrap,SelectCitizen);
-            Debug.Log("Building prototype: temporary Town Hall Level 4; B toggles build menu; R rotates; left click places; Escape cancels.", this);
+            Debug.Log("Building prototype: Town Hall Level 1; B toggles build menu; R rotates; left click places; Escape cancels.", this);
         }
         private void RefreshPresentation()
         {
@@ -231,6 +236,7 @@ namespace ColonyGame.Presentation
         }
         private void UpdatePlayerInteraction(Keyboard keyboard)
         {
+            ambience.ShowPlayerWork(null,false);
             if(keyboard==null) return;
             bool pressed=keyboard.eKey.wasPressedThisFrame;
             bool blocked=hud.BlocksGameplayShortcuts||selectedBuilding!=null||hud.BuildListOpen;
@@ -240,7 +246,8 @@ namespace ColonyGame.Presentation
                 hud.ShowBuilding(playerInteraction.BuildingTarget);
             if(playerInteraction.AvailableInteraction==PlayerInteractionType.ManualConstruction&&
                 hud.ManagedBuilding!=playerInteraction.BuildingTarget) blocked=true;
-            var result=playerInteraction.Act(pressed,keyboard.eKey.isPressed,Time.deltaTime,blocked);
+            var result=playerInteraction.Act(pressed,keyboard.eKey.isPressed,Time.deltaTime*economy.Clock.Speed,blocked);
+            ambience.ShowPlayerWork(playerInteraction.BuildingTarget,!blocked&&keyboard.eKey.isPressed&&economy.Clock.IsDay&&result.Type==PlayerInteractionType.ManualConstruction);
             switch(result.Type)
             {
                 case PlayerInteractionType.TownHallManagement:
@@ -268,9 +275,17 @@ namespace ColonyGame.Presentation
         private void Update()
         {
             if (State == null || hud == null) return;
-            citizens?.Tick(Time.deltaTime);
-            wildlife?.ReactToCitizens(citizens.Citizens,bootstrap.Settings.WildlifeDetectionRadius);
-            wildlifeView?.Tick(Time.deltaTime);
+            economy.Advance(Time.deltaTime,(step,day)=>
+            {
+                wildlifeView.SetVisible(day);
+                if(day)
+                {
+                    wildlife.ReconcileTerritory(false);
+                    wildlife.ReactToCitizens(citizens.Citizens.Where(c=>c.InsideBuildingId==null),bootstrap.Settings.WildlifeDetectionRadius);
+                    wildlifeView.Tick((float)step);
+                }
+            });
+            ambience.Update(Time.deltaTime);
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
@@ -303,7 +318,7 @@ namespace ColonyGame.Presentation
                     hasCursorTile = true;
                     placementValidity = ValidateBootstrapPlacement();
                     if (mouse.leftButton.wasPressedThisFrame && placementValidity == BuildingPlacementValidity.Valid &&
-                        bootstrap.TryStartFirstHut(cursorTile, orientationDegrees, out var newSite))
+                        economy.TryBuild(selectedBuilding.Type,cursorTile, orientationDegrees, out var newSite))
                     {
                         RefreshPresentation();
                         CancelPlacement(); SelectInteractionBuilding(newSite);
@@ -331,7 +346,7 @@ namespace ColonyGame.Presentation
                     }
                 }
             }
-            if (selectedCitizen != null && !selectedCitizen.Active) SelectCitizen(null);
+            if (selectedCitizen != null && (!selectedCitizen.Active||!bootstrap.Roster.Contains(selectedCitizen))) SelectCitizen(null);
             citizenView?.Sync(selectedCitizen);
             hud.ShowCitizen(selectedCitizen);
             if (previewRoot != null) previewRoot.SetActive(selectedBuilding != null && hasCursorTile);
@@ -345,23 +360,22 @@ namespace ColonyGame.Presentation
         private void LateUpdate()
         {
             if (State != null && hud != null)
-                hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", wildlife?.Animals.Count(a => a.Active) ?? 0, citizens?.Citizens.Count(a => a.Active) ?? 0);
+                hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", economy.Clock.IsDay ? wildlife?.Animals.Count(a => a.Active) ?? 0 : 0, citizens?.Citizens.Count(a => a.Active) ?? 0);
         }
         private BuildingPlacementValidity ValidateBootstrapPlacement()
         {
             var geometric=State.ValidateBuildingPlacement(selectedBuilding.Type,cursorTile,orientationDegrees);
             if(geometric!=BuildingPlacementValidity.Valid) return geometric;
-            if(selectedBuilding.Type!=BuildingType.BuildersHut || State.Buildings.Any(b=>b.Type==BuildingType.BuildersHut))
-                return BuildingPlacementValidity.ConstructionDeferred;
-            return bootstrap.CanStartFirstHut?BuildingPlacementValidity.Valid:BuildingPlacementValidity.InsufficientResources;
+            if(!bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(selectedBuilding.Type))) return BuildingPlacementValidity.InsufficientResources;
+            return economy.CanBuild(selectedBuilding.Type)?BuildingPlacementValidity.Valid:BuildingPlacementValidity.ConstructionDeferred;
         }
         private string PlacementStatus(BuildingPlacementValidity validity)
         {
             switch (validity)
             {
-                case BuildingPlacementValidity.Valid: return $"VALID: first Hut costs {bootstrap.Settings.HutWoodCost} Wood";
-                case BuildingPlacementValidity.InsufficientResources: return $"Need {bootstrap.Settings.HutWoodCost} Wood in Town Hall storage";
-                case BuildingPlacementValidity.ConstructionDeferred: return "Preview only: subsequent construction/costs deferred";
+                case BuildingPlacementValidity.Valid: return $"VALID: {BuildingEconomyRules.Describe(BuildingEconomyRules.Cost(selectedBuilding.Type))}";
+                case BuildingPlacementValidity.InsufficientResources: return $"Need {BuildingEconomyRules.Describe(BuildingEconomyRules.Cost(selectedBuilding.Type))}";
+                case BuildingPlacementValidity.ConstructionDeferred: return "A free assigned Builder is required";
                 case BuildingPlacementValidity.OutsideTerritory: return "INVALID: outside territory";
                 case BuildingPlacementValidity.Occupied: return "INVALID: occupied Tiles";
                 case BuildingPlacementValidity.Locked: return "INVALID: locked by Town Hall level";
@@ -383,7 +397,7 @@ namespace ColonyGame.Presentation
                 var point = new Vector2(screen.x, Screen.height - screen.y);
                 var label = new Rect(point.x - 95, point.y - 12, 190, 24);
                 if (hud != null && hud.IsPointerOverUI(new Vector2(screen.x, screen.y))) continue;
-                GUI.Box(label, building.Definition.DisplayName, style);
+                GUI.Box(label, building.Definition.DisplayName+" L"+building.Level+(building.IsUpgrading?" (upgrading)":""), style);
             }
         }
         private void OnDestroy()
@@ -391,6 +405,7 @@ namespace ColonyGame.Presentation
             hud?.Dispose();
             wildlifeView?.Dispose();
             citizenView?.Dispose();
+            ambience?.Dispose();
             palette?.Dispose();
             if (tileMaterials != null) foreach (var material in tileMaterials) Destroy(material);
             if (groundMesh != null) Destroy(groundMesh);

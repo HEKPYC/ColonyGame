@@ -7,12 +7,12 @@ namespace ColonyGame.World.Tests
     {
         private static SettlementBootstrap Bootstrap()
         {
-            var state=SettlementState.CreatePrototype();
-            return new SettlementBootstrap(state,CitizenSimulation.CreatePrototype(state));
+            var state=SettlementState.CreatePrototype(4);
+            return new SettlementBootstrap(state,CitizenSimulation.CreatePrototype(state),new BootstrapSettings(playerWorkSeconds:30));
         }
         private static BuildingState Site(SettlementBootstrap b)
         {
-            b.Resources.TryTransaction("test-supply",ResourceType.Wood,10);
+            b.Resources.TryTransaction("test-supply",ResourceType.Wood,15);
             Assert.IsTrue(b.TryStartFirstHut(new TileCoordinate(17,8),0,out var site)); return site;
         }
         [Test] public void NoTargetExposesNoInteractionAndPressDoesNotMutateSettlement()

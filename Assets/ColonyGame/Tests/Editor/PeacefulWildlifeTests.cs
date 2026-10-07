@@ -9,7 +9,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void SpawnsOnlyInRepresentedWildernessAndIncludesFourSpecies()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             var habitat = new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(-6,-6,26,26));
             var system = new PeacefulWildlifeSystem(habitat,2);
             Assert.That(system.Animals.Count,Is.EqualTo(8));
@@ -32,7 +32,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void WanderingStaysSafeAndMovesContinuouslyWithoutRapidJumps()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             var habitat = new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(-6,-6,26,26));
             var system = new PeacefulWildlifeSystem(habitat,3);
             int moves=0,pauses=0;
@@ -54,7 +54,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void NewClaimsStartEvacuationWithoutRelocationOrTerritoryChanges()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,5,26,14));
             var system=new PeacefulWildlifeSystem(habitat,4);
             var original=system.Animals.Select(a=>a.Position).ToArray();
@@ -78,7 +78,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void ClaimedDestinationIsAbandonedEvenWhenCurrentPositionIsStillSafe()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,5,26,14));
             var system=new PeacefulWildlifeSystem(habitat,10);
             for(int i=0;i<12;i++) system.Tick(.1);
@@ -89,7 +89,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void NoWildernessMeansNoSpawnOrSafeDormancyWithoutKilling()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,5,23,14));
             var system=new PeacefulWildlifeSystem(habitat,2);
             Assert.That(system.Animals.Count,Is.EqualTo(8));
@@ -124,7 +124,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void MultipleAnimalsRunOutwardContinuouslyThenResumeSafeWandering()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,5,26,14));
             var system=new PeacefulWildlifeSystem(habitat,4,runSpeedMultiplier:2);
             int warnings=0;
@@ -180,7 +180,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void ShortestExitUsesIrregularProtrusionRatherThanSettlementRectangle()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,3,26,16));
             var system=new PeacefulWildlifeSystem(habitat,20);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(17,8),0,out _);
@@ -201,7 +201,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void FurtherExpansionReplansWithoutTeleportingAnEvacuatingAnimal()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,5,30,14));
             var system=new PeacefulWildlifeSystem(habitat,12);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(17,8),0,out _);
@@ -229,7 +229,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void ImpossibleRouteUsesWarningBearingEmergencyFallbackOnly()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var inner=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(20,5,26,14));
             var system=new PeacefulWildlifeSystem(new BrokenRouteHabitat{Inner=inner},4);
             string warning=null; system.DevelopmentWarning+=message=>warning=message;

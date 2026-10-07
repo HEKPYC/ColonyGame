@@ -35,14 +35,14 @@ namespace ColonyGame.World
         {
             get
             {
-                if(CitizenTarget!=null) return CitizenTarget.Active?PlayerInteractionType.CitizenInformation:PlayerInteractionType.None;
+                if(CitizenTarget!=null) return bootstrap.Roster.Contains(CitizenTarget)&&CitizenTarget.Active?PlayerInteractionType.CitizenInformation:PlayerInteractionType.None;
                 var b=BuildingTarget;
-                if(b==null) return PlayerInteractionType.None;
+                if(b==null||!bootstrap.Settlement.Buildings.Contains(b)) return PlayerInteractionType.None;
                 if(b.Type==BuildingType.TownHall&&b.IsCompleted) return PlayerInteractionType.TownHallManagement;
-                if(b.Type!=BuildingType.BuildersHut) return PlayerInteractionType.None;
+                if(b.Type!=BuildingType.BuildersHut&&!b.IsCompleted) return PlayerInteractionType.None;
                 if(b.IsCompleted) return PlayerInteractionType.WorkplaceManagement;
                 return b.ConstructionStage==ConstructionStage.UnderConstruction&&
-                    bootstrap.Settlement.Buildings.First(x=>x.Type==BuildingType.BuildersHut)==b
+                    !b.IsUpgrading
                     ?PlayerInteractionType.ManualConstruction:PlayerInteractionType.None;
             }
         }

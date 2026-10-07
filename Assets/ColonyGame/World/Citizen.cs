@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace ColonyGame.World
 {
     public enum CitizenSex { Male, Female }
-    public enum CitizenProfession { Unemployed, Builder }
-    public enum CitizenTask { Idle, Wandering, GatheringWoodOutbound, GatheringWood, ReturningWood, Recovery }
+    public enum CitizenProfession { Unemployed, Builder, Farmer, Butcher, Fisher, Lumberjack, Miner, Warrior, Scientist, Mage }
+    public enum CitizenTask { Idle, Wandering, GatheringWoodOutbound, GatheringWood, ReturningWood, Recovery, MovingToWork, Working, ReturningHome, Sleeping }
     public enum CitizenMovement { Idle, Walking, Recovering }
 
     public readonly struct CitizenPosition
@@ -47,9 +47,11 @@ namespace ColonyGame.World
         public int Age { get; }
         public CitizenProfession Profession { get; internal set; } = CitizenProfession.Unemployed;
         public string WorkplaceBuildingId { get; internal set; }
+        public string ResidenceBuildingId { get; internal set; }
+        internal CitizenTask ScheduledTask = CitizenTask.Idle;
         internal CitizenTask GatheringTask = CitizenTask.Idle;
         public CitizenTask Task => Movement == CitizenMovement.Recovering ? CitizenTask.Recovery :
-            GatheringTask != CitizenTask.Idle ? GatheringTask : Movement == CitizenMovement.Walking ? CitizenTask.Wandering : CitizenTask.Idle;
+            GatheringTask != CitizenTask.Idle ? GatheringTask : ScheduledTask != CitizenTask.Idle ? ScheduledTask : Movement == CitizenMovement.Walking ? CitizenTask.Wandering : CitizenTask.Idle;
         public CitizenAttributes Attributes { get; }
         public CitizenPosition Position { get; internal set; }
         public CitizenPosition Destination { get; internal set; }
@@ -58,7 +60,7 @@ namespace ColonyGame.World
         public const double BodyHalfExtent = .28;
         internal readonly Queue<CitizenPosition> Route = new Queue<CitizenPosition>();
         public IReadOnlyList<CitizenPosition> PlannedRoute => Route.ToArray();
-        // Reserved location link for future explicit entry/exit; always null in this prototype.
+        // Explicit logical occupancy after walking to a valid exterior entrance.
         public string InsideBuildingId { get; internal set; }
         internal readonly HashSet<TileCoordinate> RecoveryTiles=new HashSet<TileCoordinate>();
         internal CitizenPosition RecoveryOrigin;

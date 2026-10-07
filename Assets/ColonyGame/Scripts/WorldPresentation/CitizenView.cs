@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using ColonyGame.World;
 using UnityEngine;
 
@@ -8,6 +9,8 @@ namespace ColonyGame.Presentation
     public sealed class CitizenView
     {
         private readonly CitizenSimulation simulation;
+        private readonly PrototypePalette palette;
+        private readonly Dictionary<string,CitizenProfession> shownProfessions=new Dictionary<string,CitizenProfession>();
         private readonly Transform parent;
         private readonly GameObject root;
         private readonly Dictionary<string,Transform> models=new Dictionary<string,Transform>();
@@ -16,12 +19,15 @@ namespace ColonyGame.Presentation
         private readonly Dictionary<string,GameObject> professionLayers=new Dictionary<string,GameObject>();
         public CitizenView(Transform parent,CitizenSimulation simulation,PrototypePalette palette)
         {
-            this.parent=parent; this.simulation=simulation;
+            this.parent=parent; this.simulation=simulation; this.palette=palette;
             simulation.DevelopmentWarning+=ReportWarning;
             root=new GameObject("Settlement Citizens"); root.transform.SetParent(parent,false);
             ringMesh=CreateRing();
-            foreach(var citizen in simulation.Citizens)
-            {
+            foreach(var citizen in simulation.Citizens) CreateCitizen(citizen);
+            Sync(null);
+        }
+        private void CreateCitizen(Citizen citizen)
+        {
                 var model=new GameObject(citizen.FirstName+" ("+citizen.Id+")");
                 model.transform.SetParent(root.transform,false);
                 models.Add(citizen.Id,model.transform);
@@ -52,8 +58,6 @@ namespace ColonyGame.Presentation
                 renderer.sharedMaterial=palette.Get(new Color(.3f,.9f,1f));
                 renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;
                 indicators.Add(citizen.Id,ring); ring.SetActive(false);
-            }
-            Sync(null);
         }
         private static Mesh CreateRing()
         {
@@ -79,7 +83,7 @@ namespace ColonyGame.Presentation
             Citizen closest=null;float nearest=float.PositiveInfinity;
             foreach(var citizen in simulation.Citizens)
             {
-                if(!citizen.Active) continue;
+                if(!citizen.Active||citizen.InsideBuildingId!=null) continue;
                 var bounds=new Bounds(new Vector3((float)citizen.Position.X,.65f,(float)citizen.Position.Z),new Vector3(.56f,1.3f,.56f));
                 if(bounds.IntersectRay(localRay,out float distance)&&distance<nearest) { nearest=distance;closest=citizen; }
             }
@@ -87,14 +91,43 @@ namespace ColonyGame.Presentation
         }
         public void Sync(Citizen selected)
         {
+            foreach(var id in models.Keys.Where(id=>!simulation.Citizens.Any(c=>c.Id==id)).ToArray())
+            {
+                Object.Destroy(models[id].gameObject);
+                models.Remove(id);indicators.Remove(id);professionLayers.Remove(id);shownProfessions.Remove(id);
+            }
+            foreach(var citizen in simulation.Citizens) if(!models.ContainsKey(citizen.Id)) CreateCitizen(citizen);
             foreach(var citizen in simulation.Citizens)
             {
                 var model=models[citizen.Id];
-                model.gameObject.SetActive(citizen.Active);
-                professionLayers[citizen.Id].SetActive(citizen.Profession==CitizenProfession.Builder);
+                model.gameObject.SetActive(citizen.Active&&citizen.InsideBuildingId==null);
+                                if(!shownProfessions.TryGetValue(citizen.Id,out var shown)||shown!=citizen.Profession)
+                {
+                    Object.Destroy(professionLayers[citizen.Id]);
+                    var layer=new GameObject(citizen.Profession+" equipment");layer.transform.SetParent(model,false);
+                    professionLayers[citizen.Id]=layer;shownProfessions[citizen.Id]=citizen.Profession;
+                    if(citizen.Profession!=CitizenProfession.Unemployed)
+                    {
+                        Color color=citizen.Profession==CitizenProfession.Warrior?new Color(.48f,.5f,.55f):citizen.Profession==CitizenProfession.Fisher?new Color(.2f,.4f,.8f):
+                            citizen.Profession==CitizenProfession.Mage?new Color(.48f,.25f,.7f):
+                            citizen.Profession==CitizenProfession.Butcher||citizen.Profession==CitizenProfession.Scientist?new Color(.85f,.85f,.8f):
+                            new Color(.55f,.42f,.24f);
+                        PrototypePalette.Shape(layer.transform,"Work vest",PrimitiveType.Cube,new Vector3(0,.62f,.145f),new Vector3(.3f,citizen.Profession==CitizenProfession.Mage?.75f:.42f,.04f),palette.Get(color));
+                        if(citizen.Profession==CitizenProfession.Miner||citizen.Profession==CitizenProfession.Farmer||citizen.Profession==CitizenProfession.Fisher)
+                            PrototypePalette.Shape(layer.transform,"Profession hat",PrimitiveType.Cylinder,new Vector3(0,1.18f,0),new Vector3(.4f,.04f,.4f),palette.Get(color));
+                        if(citizen.Profession==CitizenProfession.Builder||citizen.Profession==CitizenProfession.Lumberjack||citizen.Profession==CitizenProfession.Warrior||citizen.Profession==CitizenProfession.Mage||citizen.Profession==CitizenProfession.Fisher)
+                            PrototypePalette.Shape(layer.transform,"Work tool",PrimitiveType.Cube,new Vector3(.3f,.55f,.15f),new Vector3(.045f,.65f,.045f),palette.Get(new Color(.4f,.3f,.2f)));
+                                                if(citizen.Profession==CitizenProfession.Lumberjack||citizen.Profession==CitizenProfession.Builder)
+                            PrototypePalette.Shape(layer.transform,"Tool head",PrimitiveType.Cube,new Vector3(.3f,.84f,.15f),new Vector3(.18f,.08f,.06f),palette.Get(new Color(.5f,.52f,.55f)));
+                        if(citizen.Profession==CitizenProfession.Scientist)
+                            PrototypePalette.Shape(layer.transform,"Goggles",PrimitiveType.Cube,new Vector3(0,1.06f,.15f),new Vector3(.23f,.07f,.03f),palette.Get(new Color(.3f,.55f,.7f)));
+                    }
+                }
                 var next=new Vector3((float)citizen.Position.X,0,(float)citizen.Position.Z);
                 var direction=next-model.localPosition;
+                direction.y=0;
                 if(direction.sqrMagnitude>.000001f) model.localRotation=Quaternion.LookRotation(direction.normalized,Vector3.up);
+                if(citizen.Task==CitizenTask.Working) next.y=.015f*Mathf.Sin(Time.time*6f);
                 model.localPosition=next;
                 indicators[citizen.Id].SetActive(citizen.Active&&selected==citizen);
             }

@@ -13,7 +13,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void StartingPopulationHasFourUniqueUnemployedAdultsWithTwoOfEachSex()
         {
-            var citizens=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype()).Citizens;
+            var citizens=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(4)).Citizens;
             Assert.That(citizens.Count,Is.EqualTo(4));
             Assert.That(citizens.Count(c=>c.Sex==CitizenSex.Male),Is.EqualTo(2));
             Assert.That(citizens.Count(c=>c.Sex==CitizenSex.Female),Is.EqualTo(2));
@@ -26,8 +26,8 @@ namespace ColonyGame.World.Tests
             var ages=new HashSet<int>();var values=new HashSet<int>();
             for(int seed=0;seed<100;seed++)
             {
-                var one=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(),seed:seed).Citizens;
-                var two=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(),seed:seed).Citizens;
+                var one=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(4),seed:seed).Citizens;
+                var two=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(4),seed:seed).Citizens;
                 for(int i=0;i<4;i++)
                 {
                     Assert.That(one[i].Age,Is.InRange(18,45));
@@ -47,7 +47,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void StartingPositionsAreDistinctClaimedAndOutsideEveryBuilding()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var policy=new SettlementIdleMovementPolicy(state);
             var citizens=CitizenSimulation.CreatePrototype(state).Citizens;
             Assert.That(citizens.Select(c=>c.Position.Tile).Distinct().Count(),Is.EqualTo(4));
@@ -57,14 +57,14 @@ namespace ColonyGame.World.Tests
         [Test]
         public void StartupAlsoAvoidsPreviouslyPlacedFootprints()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(4,4),0,out _),Is.True);
             Assert.That(CitizenSimulation.CreatePrototype(state).Citizens.All(c=>!state.IsOccupied(c.Position.Tile)),Is.True);
         }
         [Test]
         public void NavigationRoutesAroundTownHallInsteadOfCrossingIt()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var policy=new SettlementIdleMovementPolicy(state);
             var path=CitizenNavigation.FindPath(new TileCoordinate(6,9),new TileCoordinate(12,9),t=>policy.CanOccupy(CitizenPosition.Center(t)));
             Assert.That(path.Count,Is.EqualTo(13));
@@ -85,7 +85,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void BodyClearanceRejectsClaimEdgesAndBuildingEdges()
         {
-            var policy=new SettlementIdleMovementPolicy(SettlementState.CreatePrototype());
+            var policy=new SettlementIdleMovementPolicy(SettlementState.CreatePrototype(4));
             Assert.That(policy.CanOccupy(new CitizenPosition(.1,2.5)),Is.False);
             Assert.That(policy.CanOccupy(new CitizenPosition(6.9,9.5)),Is.False);
             Assert.That(policy.CanOccupy(new CitizenPosition(6.5,9.5)),Is.True);
@@ -94,7 +94,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void IdleWanderingIsContinuousPausesAndKeepsDestinationsWalkable()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.Farm,new TileCoordinate(2,2),90,out _);
             var policy=new SettlementIdleMovementPolicy(state);
             var simulation=CitizenSimulation.CreatePrototype(state);
@@ -117,7 +117,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void ExpansionMakesNewClaimedTilesAvailableWithoutOpeningWilderness()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var policy=new SettlementIdleMovementPolicy(state);
             Assert.That(policy.CanOccupy(new CitizenPosition(22.5,11.5)),Is.False);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(17,8),0,out _);
@@ -129,7 +129,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void BuildingOverCitizenSucceedsAndStartsNearestContinuousRecovery()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var simulation=CitizenSimulation.CreatePrototype(state);
             var c=simulation.Citizens[0];var before=c.Position;
             int warnings=0;simulation.DevelopmentWarning+=_=>warnings++;
@@ -156,7 +156,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void FootprintRecoveryWorksForSeveralCitizensIndependently()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             var policy=new SettlementIdleMovementPolicy(state);
             var citizens=new[]{Adult("a",new CitizenPosition(2.5,2.5)),Adult("b",new CitizenPosition(2.5,3.5))};
             var simulation=new CitizenSimulation(policy,citizens);
@@ -170,7 +170,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void NewObstacleCancelsAnUnsafeWalkingRouteWithoutTeleportation()
         {
-            var state=SettlementState.CreatePrototype();var policy=new SettlementIdleMovementPolicy(state);
+            var state=SettlementState.CreatePrototype(4);var policy=new SettlementIdleMovementPolicy(state);
             var c=Adult("walker",new CitizenPosition(.5,.5));
             var simulation=new CitizenSimulation(policy,new[]{c},new CitizenMovementSettings(minimumPause:0,maximumPause:0));
             simulation.Tick(.01);
@@ -209,7 +209,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void RecoveryPermissionDoesNotAllowCrossingAnotherBuilding()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(1,1),0,out _);
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(4,1),0,out _);
             var policy=new SettlementIdleMovementPolicy(state);
@@ -222,7 +222,7 @@ namespace ColonyGame.World.Tests
         }        [Test]
         public void SurroundedFootprintUsesContinuousRecoveryToConnectedClaims()
         {
-            var state=SettlementState.CreatePrototype();
+            var state=SettlementState.CreatePrototype(4);
             foreach(var origin in new[]{new TileCoordinate(1,4),new TileCoordinate(7,4),new TileCoordinate(4,1),new TileCoordinate(4,7)})
                 Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House,origin,0,out _),Is.True);
             int claims=state.Territory.Count;
@@ -244,7 +244,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void PlacementDuringWalkingPreservesFractionalPositionAndRecoveryContinuity()
         {
-            var state=SettlementState.CreatePrototype();var policy=new SettlementIdleMovementPolicy(state);
+            var state=SettlementState.CreatePrototype(4);var policy=new SettlementIdleMovementPolicy(state);
             var c=Adult("moving",new CitizenPosition(.5,.5));
             var simulation=new CitizenSimulation(policy,new[]{c},new CitizenMovementSettings(minimumPause:0,maximumPause:0));
             simulation.Tick(.5);
@@ -284,7 +284,7 @@ namespace ColonyGame.World.Tests
             Assert.Throws<ArgumentOutOfRangeException>(()=>new CitizenMovementSettings(speed:0));
             Assert.Throws<ArgumentOutOfRangeException>(()=>new CitizenMovementSettings(minimumPause:3,maximumPause:2));
             Assert.Throws<ArgumentOutOfRangeException>(()=>new CitizenPosition(double.NaN,0));
-            var policy=new SettlementIdleMovementPolicy(SettlementState.CreatePrototype());
+            var policy=new SettlementIdleMovementPolicy(SettlementState.CreatePrototype(4));
             var c=Adult("same",new CitizenPosition(.5,.5));
             Assert.Throws<ArgumentException>(()=>new CitizenSimulation(policy,new[]{c,c}));
             var simulation=new CitizenSimulation(policy,new[]{c});

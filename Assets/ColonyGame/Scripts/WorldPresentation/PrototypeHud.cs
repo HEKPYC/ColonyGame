@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using ColonyGame.World;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -25,9 +26,16 @@ namespace ColonyGame.Presentation
         private Label managementInfo;
         private ScrollView roster;
         private Button assignButton;
+        private Button upgradeButton,demolishButton,dismissButton;
+        private Label economyInfo;
+        private readonly Dictionary<BuildingType,Button> buildEntries=new Dictionary<BuildingType,Button>();
+        private readonly List<System.Tuple<RecruitmentCandidate,Button>> recruitButtons=new List<System.Tuple<RecruitmentCandidate,Button>>();
+        private string rosterSignature;
+        private Citizen inspectedCitizen;
+        private bool confirmDemolition,confirmDismissal;
         private BuildingState managedBuilding;
         private bool choosingWorker;
-        private int rosterEmployment=-1;
+
         private readonly VisualElement buildList;
         private readonly VisualElement placement;
         private readonly VisualElement citizenPanel;
@@ -82,7 +90,7 @@ namespace ColonyGame.Presentation
             var scroll = new ScrollView(ScrollViewMode.Vertical);
             scroll.style.flexShrink = 1;
             buildList.Add(scroll);
-            foreach (var definition in definitions)
+            foreach (var definition in BuildingCatalog.All.Where(d=>d.IsPlayerPlaceable))
             {
                 var entry = new Button(() =>
                 {
@@ -94,10 +102,11 @@ namespace ColonyGame.Presentation
                 entry.style.minHeight = 44;
                 entry.style.marginBottom = 3;
                 entry.Add(TextElement(definition.DisplayName));
-                var details = TextElement($"{definition.BaseWidth} x {definition.BaseDepth} | Requires TH {definition.RequiredTownHallLevel}");
+                var details = TextElement($"{definition.BaseWidth} x {definition.BaseDepth} | Requires TH {definition.RequiredTownHallLevel} | {BuildingEconomyRules.Describe(BuildingEconomyRules.Cost(definition.Type))}");
                 details.style.fontSize = 11;
                 entry.Add(details);
                 scroll.Add(entry);
+                buildEntries.Add(definition.Type,entry);
             }
             placement = Panel("placement-status", column);
             placement.style.flexShrink = 0;
@@ -173,7 +182,12 @@ namespace ColonyGame.Presentation
         public void Update(SettlementState state, BuildingDefinition definition, int orientation, string status, int wildlifeCount = 0, int citizenCount = 0)
         {
             RefreshManagement();
-            counts.text = $"Claimed Tiles: {state.Territory.Count} | Buildings: {state.Buildings.Count}\nTown Hall Level: {state.TownHallLevel} (test override) | Wildlife: {wildlifeCount}\nCitizens: {citizenCount}\nWood: {bootstrap?.Resources.Amount(ResourceType.Wood) ?? 0}";
+            if(bootstrap?.Economy!=null)
+            {
+                foreach(var entry in buildEntries) entry.Value.style.display=BuildingCatalog.Get(entry.Key).RequiredTownHallLevel<=state.TownHallLevel?DisplayStyle.Flex:DisplayStyle.None;
+                economyInfo.text=$"Day {bootstrap.Economy.Clock.Day} | {(bootstrap.Economy.Clock.IsDay?"Day":"Night")} {bootstrap.Economy.Clock.PhaseProgress:P0} | {bootstrap.Economy.Clock.Speed}x";
+            }
+            counts.text = $"Claimed Tiles: {state.Territory.Count} | Buildings: {state.Buildings.Count}\nTown Hall Level: {state.TownHallLevel} | Wildlife: {wildlifeCount}\nCitizens: {citizenCount}\nWood: {bootstrap?.Resources.Amount(ResourceType.Wood) ?? 0}";
             placement.style.display = definition == null || HelpOpen ? DisplayStyle.None : DisplayStyle.Flex;
             if (definition == null) return;
             var footprint = definition.GetFootprint(orientation);
@@ -183,32 +197,67 @@ namespace ColonyGame.Presentation
         }
         public void ShowCitizen(Citizen citizen)
         {
+            if(inspectedCitizen!=citizen) {inspectedCitizen=citizen;confirmDismissal=false;}
+            if(dismissButton!=null) dismissButton.text=confirmDismissal?$"Confirm permanent dismissal of {citizen?.FirstName}":"Dismiss citizen permanently";
             citizenPanel.style.display = citizen == null || HelpOpen ? DisplayStyle.None : DisplayStyle.Flex;
             if(citizen == null) return;
             var a=citizen.Attributes;
-            citizenInfo.text=$"{citizen.FirstName}\nSex: {citizen.Sex} | Age: {citizen.Age}\nProfession: {citizen.Profession}\nWorkplace: {bootstrap?.WorkplaceName(citizen) ?? "None"}\nTask: {citizen.Task}\nStrength: {a.Strength}\nDexterity: {a.Dexterity}\nIntelligence: {a.Intelligence}\nEndurance: {a.Endurance}\nCharisma: {a.Charisma}";
+            citizenInfo.text=$"{citizen.FirstName}\nSex: {citizen.Sex} | Age: {citizen.Age}\nProfession: {citizen.Profession}\nWorkplace: {bootstrap?.WorkplaceName(citizen) ?? "None"}\nResidence: {bootstrap?.Settlement.Buildings.FirstOrDefault(b=>b.Id==citizen.ResidenceBuildingId)?.Definition.DisplayName ?? "Homeless"}\nTask: {citizen.Task}\nStrength: {a.Strength}\nDexterity: {a.Dexterity}\nIntelligence: {a.Intelligence}\nEndurance: {a.Endurance}\nCharisma: {a.Charisma}";
         }
         public void BindBootstrap(SettlementBootstrap state,Action<Citizen> inspect)
         {
             bootstrap=state; inspectCitizen=inspect;
+            economyInfo=Text(buildButton.parent,"");
+            var speedRow=new VisualElement();speedRow.style.flexDirection=FlexDirection.Row;buildButton.parent.Add(speedRow);
+            foreach(int speed in new[]{1,2,4,8,16})
+            {
+                int value=speed;
+                speedRow.Add(new Button(()=>bootstrap.Economy.Clock.SetSpeed(value)){text=value+"x"});
+            }
+            dismissButton=new Button(()=>
+            {
+                pointerInputFrame=Time.frameCount;
+                if(inspectedCitizen==null) return;
+                if(!confirmDismissal) {confirmDismissal=true;return;}
+                if(bootstrap.Economy.Dismiss(inspectedCitizen)) {inspectCitizen(null);ShowCitizen(null);rosterSignature=null;}
+            });
+            citizenPanel.Add(dismissButton);
             PopulateHelp(PrototypeHelpContent.Create(state.Settings,state.Settlement.TownHallLevel));
             management=Panel("building-management",root);
             management.style.position=Position.Absolute;
             management.style.right=12; management.style.top=12;
             management.style.width=320; management.style.maxWidth=Length.Percent(45);
             management.style.maxHeight=Length.Percent(90);
-            managementInfo=Text(management,"");
-            assignButton=new Button(()=> { choosingWorker=true; rosterEmployment=-1; RefreshManagement(); }) { text="Assign Worker" };
-            management.Add(assignButton);
+                        var body=new ScrollView(ScrollViewMode.Vertical);
+            body.style.flexShrink=1;body.style.minHeight=0;
+            management.Add(body);
+            managementInfo=Text(body,"");
+            assignButton=new Button(()=> { choosingWorker=true; rosterSignature=null; RefreshManagement(); }) { text="Assign Worker" };
+            body.Add(assignButton);
+            upgradeButton=new Button(()=>
+            {
+                pointerInputFrame=Time.frameCount;
+                if(managedBuilding==bootstrap.Settlement.TownHall) bootstrap.Economy.TryUpgradeTownHall();
+                else bootstrap.Economy.TryUpgrade(managedBuilding);
+                rosterSignature=null;RefreshManagement();
+            }){text="Upgrade"};
+            body.Add(upgradeButton);
+            demolishButton=new Button(()=>
+            {
+                pointerInputFrame=Time.frameCount;
+                if(!confirmDemolition) {confirmDemolition=true;return;}
+                if(bootstrap.Economy.Demolish(managedBuilding)) ShowBuilding(null);
+            });
+            body.Add(demolishButton);
             roster=new ScrollView(ScrollViewMode.Vertical);
             roster.style.flexShrink=1; roster.style.maxHeight=440;
-            management.Add(roster);
-            management.Add(new Button(()=>ShowBuilding(null)) { text="Close" });
+            body.Add(roster);
+            body.Add(new Button(()=>ShowBuilding(null)) { text="Close" });
             management.style.display=DisplayStyle.None;
         }
         public void ShowBuilding(BuildingState building)
         {
-            managedBuilding=building; choosingWorker=false; rosterEmployment=-1;
+            managedBuilding=building; choosingWorker=false; rosterSignature=null;confirmDemolition=false;
             if(management==null) return;
             management.style.display=building==null||HelpOpen?DisplayStyle.None:DisplayStyle.Flex;
             if(building!=null) SetBuildListOpen(false);
@@ -221,43 +270,89 @@ namespace ColonyGame.Presentation
         }
         private void RefreshManagement()
         {
-            if(managedBuilding==null||bootstrap==null) return;
-            var b=managedBuilding;
+            if(managedBuilding==null||bootstrap?.Economy==null) return;
+            if(!bootstrap.Settlement.Buildings.Contains(managedBuilding)) {ShowBuilding(null);return;}
+            var b=managedBuilding;var economy=bootstrap.Economy;
             bool hall=b.Type==BuildingType.TownHall;
-            if(hall)
-                managementInfo.text=$"Town Hall\nLevel: {bootstrap.Settlement.TownHallLevel} (TEST OVERRIDE)\nClaimed Tiles: {bootstrap.Settlement.Territory.Count}\nPopulation: {bootstrap.Roster.Count} | Employed: {bootstrap.EmployedCount} | Unemployed: {bootstrap.UnemployedCount}\nWood: {bootstrap.Resources.Amount(ResourceType.Wood)}\nStorage: Town Hall\nCitizen roster";
-            else if(!b.IsCompleted)
-                managementInfo.text=$"{b.Definition.DisplayName}\nUnder Construction\nProgress: {b.ConstructionProgress:P0}\nWork remaining: {b.RequiredConstructionWork-b.ConstructionWork:F1} seconds\nHold E to Build (active work only)";
-            else managementInfo.text=$"{b.Definition.DisplayName}\nCompleted\nWorker: {bootstrap.WorkerAt(b)?.FirstName ?? "None"}";
-            assignButton.style.display=b.Type==BuildingType.BuildersHut&&b.IsCompleted&&bootstrap.WorkerAt(b)==null?DisplayStyle.Flex:DisplayStyle.None;
-            if(rosterEmployment==bootstrap.EmployedCount) return;
-            rosterEmployment=bootstrap.EmployedCount; roster.Clear();
-            if(hall)
-                foreach(var c in bootstrap.Roster)
-                {
-                    var citizen=c;
-                    var row=new Button(()=>inspectCitizen(citizen)) { text=CitizenDescription(citizen) };
-                    row.style.whiteSpace=WhiteSpace.Normal; row.style.minHeight=100;
-                    roster.Add(row);
-                }
-            else if(choosingWorker&&b.IsCompleted)
+            int capacity=BuildingEconomyRules.ResidenceCapacity(b);
+            string text=$"{b.Definition.DisplayName} | Level {b.Level}\n";
+            if(b.ConstructionStage==ConstructionStage.UnderConstruction)
+                text+=$"{(b.IsUpgrading?"Upgrade":"Construction")} {b.ConstructionProgress:P0}\nRemaining work: {b.RequiredConstructionWork-b.ConstructionWork:F1}s\n"+
+                    (b.Type==BuildingType.BuildersHut&&!b.IsUpgrading?"Hold E during Day to build\n":"Assigned Builder works during Day\n");
+                        text+=$"Worker: {bootstrap.WorkerAt(b)?.FirstName??"None"}\n";
+            if(b.ConstructionStage==ConstructionStage.UnderConstruction)
             {
-                foreach(var c in bootstrap.EligibleWorkers(b))
+                var job=economy.Jobs.FirstOrDefault(j=>j.Building==b);
+                text+="Construction actor: "+(job==null?"Player":job.Builder?.FirstName??"Waiting for qualified replacement")+"\n";
+            }
+            if(capacity>0)
+                text+=$"Residents: {economy.Residences.Residents(b).Count()} / {capacity}\n"+
+                    string.Join(", ",economy.Residences.Residents(b).Select(c=>c.FirstName))+"\n";
+            if(hall)
+            {
+                text+=$"Population: {bootstrap.Roster.Count} / {economy.Residences.Capacity}\nEmployed: {bootstrap.EmployedCount} | Unemployed: {bootstrap.UnemployedCount} | Homeless: {economy.Residences.Homeless}\nStorage: one central inventory\n";
+                foreach(ResourceType resource in System.Enum.GetValues(typeof(ResourceType)))
+                    text+=$"{resource}: {(ResourceCatalog.Obtainable(bootstrap.Settlement,resource)?bootstrap.Resources.Amount(resource).ToString():"Requirements are not met yet")}\n";
+                text+="Residences:\n"+string.Join("\n",economy.Residences.Buildings.Select(home=>$"{home.Definition.DisplayName} L{home.Level}: {economy.Residences.Residents(home).Count()}/{BuildingEconomyRules.ResidenceCapacity(home)}"))+"\n";
+            }
+            var cost=b.Level<5?BuildingEconomyRules.Cost(b.Type,b.Level+1):null;
+            bool canUpgrade=b.ConstructionStage==ConstructionStage.Completed&&b.Level<5&&(hall||b.Level<bootstrap.Settlement.TownHallLevel&&economy.AvailableBuilders(b.Level+1,b).Any());
+            if(cost!=null)
+            {
+                text+="Next upgrade: "+BuildingEconomyRules.Describe(cost)+"\n";
+                var missing=cost.Where(x=>bootstrap.Resources.Amount(x.Key)<x.Value).ToDictionary(x=>x.Key,x=>x.Value-bootstrap.Resources.Amount(x.Key));
+                text+="Missing: "+(missing.Count==0?"None":BuildingEconomyRules.Describe(missing))+"\n";
+                text+=canUpgrade?"":"Requires Town Hall level and an available qualified Builder.\n";
+                upgradeButton.SetEnabled(canUpgrade&&bootstrap.Resources.CanPay(cost));
+            }
+            else text+="Maximum Level 5\n";
+            upgradeButton.style.display=cost!=null&&b.ConstructionStage==ConstructionStage.Completed?DisplayStyle.Flex:DisplayStyle.None;
+            demolishButton.style.display=!hall&&b.ConstructionStage==ConstructionStage.Completed?DisplayStyle.Flex:DisplayStyle.None;
+            demolishButton.text=(confirmDemolition?"Confirm demolition: ":"Demolish / Refund: ")+BuildingEconomyRules.Describe(economy.Refund(b));
+            managementInfo.text=text;
+            assignButton.style.display=BuildingEconomyRules.Profession(b.Type)!=CitizenProfession.Unemployed&&b.IsCompleted&&bootstrap.WorkerAt(b)==null?DisplayStyle.Flex:DisplayStyle.None;
+            foreach(var item in recruitButtons) item.Item2.SetEnabled(economy.Recruitment.CanRecruit(item.Item1));
+            var tavernCandidates=economy.Recruitment.Candidates.Where(c=>c.TavernId==b.Id).ToArray();
+            string signature=b.Id+":"+choosingWorker+":"+economy.Clock.Day+":"+string.Join(",",bootstrap.Roster.Select(c=>c.Id+c.Profession+c.ResidenceBuildingId))+":"+string.Join(",",tavernCandidates.Select(c=>c.Citizen.Id));
+            if(signature==rosterSignature) return;
+            rosterSignature=signature;roster.Clear();recruitButtons.Clear();
+            if(hall)
+                foreach(var citizen in bootstrap.Roster)
                 {
-                    var citizen=c;
+                    var selected=citizen;
+                    var row=new Button(()=>inspectCitizen(selected)){text=CitizenDescription(selected)};
+                    row.style.whiteSpace=WhiteSpace.Normal;row.style.minHeight=100;roster.Add(row);
+                    foreach(var home in economy.Residences.Buildings.Where(home=>home.Id!=selected.ResidenceBuildingId&&economy.Residences.Residents(home).Count()<BuildingEconomyRules.ResidenceCapacity(home)))
+                    {
+                        var residence=home;
+                        roster.Add(new Button(()=>{economy.Residences.Assign(selected,residence);rosterSignature=null;}){text="Move "+selected.FirstName+" to "+home.Definition.DisplayName});
+                    }
+                }
+            if(choosingWorker)
+            {
+                foreach(var citizen in bootstrap.EligibleWorkers(b))
+                {
+                    var selected=citizen;
                     var row=new Button(()=>
                     {
                         pointerInputFrame=Time.frameCount;
-                        if(bootstrap.TryAssignBuilder(b,citizen.Id))
-                        {
-                            choosingWorker=false; rosterEmployment=-1;
-                            inspectCitizen(citizen); RefreshManagement();
-                        }
-                    }) { text=CitizenDescription(citizen) };
-                    row.style.whiteSpace=WhiteSpace.Normal; row.style.minHeight=100;
-                    roster.Add(row);
+                        if(bootstrap.TryAssignWorker(b,selected.Id)) {choosingWorker=false;rosterSignature=null;RefreshManagement();}
+                    }){text=CitizenDescription(selected)};
+                    row.style.whiteSpace=WhiteSpace.Normal;row.style.minHeight=100;roster.Add(row);
                 }
                 if(roster.childCount==0) Text(roster,"No eligible unemployed adults.");
+            }
+            if(b.Type==BuildingType.Tavern)
+            {
+                if(tavernCandidates.Length==0) Text(roster,"No visitors today. Each completed Tavern rolls 10% independently each game day.");
+                foreach(var candidate in tavernCandidates)
+                {
+                    var selected=candidate;
+                    Text(roster,CitizenDescription(candidate.Citizen)+$"\nRemaining days: {candidate.RemainingDays(economy.Clock.Day)}\nRequest: {BuildingEconomyRules.Describe(candidate.Request)}");
+                    var recruit=new Button(()=>{pointerInputFrame=Time.frameCount;if(economy.Recruitment.Recruit(selected)) {rosterSignature=null;RefreshManagement();}}){text="Recruit (payment and free housing required)"};
+                    recruit.SetEnabled(economy.Recruitment.CanRecruit(selected));roster.Add(recruit);
+                    recruitButtons.Add(System.Tuple.Create(selected,recruit));
+                }
             }
         }
         private void PopulateHelp(IEnumerable<PrototypeHelpSection> sections)

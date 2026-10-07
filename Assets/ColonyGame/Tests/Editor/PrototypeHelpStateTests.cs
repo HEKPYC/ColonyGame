@@ -47,9 +47,9 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void HelpOperationsDoNotMutateSettlementOrCitizenAndConstructionState()
         {
-            var settlement=SettlementState.CreatePrototype(); var simulation=CitizenSimulation.CreatePrototype(settlement);
+            var settlement=SettlementState.CreatePrototype(4); var simulation=CitizenSimulation.CreatePrototype(settlement);
             var bootstrap=new SettlementBootstrap(settlement,simulation); var citizen=simulation.Citizens[0];
-            bootstrap.Resources.TryTransaction("test-supply",ResourceType.Wood,10);
+            bootstrap.Resources.TryTransaction("test-supply",ResourceType.Wood,15);
             bootstrap.TryStartFirstHut(new TileCoordinate(17,8),90,out var site);
             bootstrap.ContributeWork(site,ConstructionActor.Player,12);
             var position=citizen.Position; var attributes=citizen.Attributes; var state=Create();

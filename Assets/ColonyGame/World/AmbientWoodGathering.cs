@@ -78,6 +78,9 @@ namespace ColonyGame.World
         private readonly IGatheringRandom random;
         private readonly Dictionary<string,Trip> trips=new Dictionary<string,Trip>();
         public WildernessTaskArea Area { get; }
+        public bool AllowNewTrips { get; set; } = true;
+        public void RemoveCitizen(Citizen citizen) { trips.Remove(citizen.Id); }
+        private Trip Record(Citizen c) { if(!trips.TryGetValue(c.Id,out var t)) trips.Add(c.Id,t=new Trip {Cooldown=bootstrap.Settings.InitialGatherDelay}); return t; }
         public int SuccessRolls { get; private set; }
         public AmbientWoodGathering(SettlementBootstrap bootstrap,IGatheringRandom random=null)
         {
@@ -87,8 +90,8 @@ namespace ColonyGame.World
             Area=new WildernessTaskArea(bootstrap.Settlement,bootstrap.Settings.WildernessDepth);
             for(int i=0;i<simulation.Citizens.Count;i++) trips.Add(simulation.Citizens[i].Id,new Trip { Cooldown=bootstrap.Settings.InitialGatherDelay+i*bootstrap.Settings.CitizenGatherStagger });
         }
-        public static bool IsEligible(Citizen c)=>c!=null&&c.Active&&c.Age>=18&&c.Profession==CitizenProfession.Unemployed;
-        public int PendingWood(Citizen c)=>trips[c.Id].PendingWood;
+        public static bool IsEligible(Citizen c)=>c!=null&&c.Active&&c.InsideBuildingId==null&&c.Age>=18&&c.Profession==CitizenProfession.Unemployed;
+        public int PendingWood(Citizen c)=>Record(c).PendingWood;
         public bool HasTrip(Citizen c)=>c.GatheringTask!=CitizenTask.Idle;
         private bool Walkable(TileCoordinate t)=>Area.CanOccupy(CitizenPosition.Center(t));
         private void SetRoute(Citizen c,IReadOnlyList<TileCoordinate> route,CitizenTask task)
@@ -124,7 +127,7 @@ namespace ColonyGame.World
         {
             var route=HallRoute(c);
             if(route.Count==0) return false;
-            trips[c.Id].ReturnAccess=route[route.Count-1];
+            Record(c).ReturnAccess=route[route.Count-1];
             SetRoute(c,route,CitizenTask.ReturningWood);
             return true;
         }
@@ -147,7 +150,7 @@ namespace ColonyGame.World
         }
         public bool TryBegin(Citizen c)
         {
-            if(!simulation.Citizens.Contains(c)||!IsEligible(c)||HasTrip(c)||c.Movement==CitizenMovement.Recovering) return false;
+            if(!AllowNewTrips||!simulation.Citizens.Contains(c)||!IsEligible(c)||HasTrip(c)||c.Movement==CitizenMovement.Recovering) return false;
             // Require a real return route before dispatching any task.
             if(HallRoute(c).Count==0) return false;
             var reachable=CitizenNavigation.ReachableTiles(c.Position.Tile,Walkable);
@@ -157,7 +160,7 @@ namespace ColonyGame.World
             var target=candidates[random.Next(candidates.Length)];
             var route=CitizenNavigation.FindPath(c.Position.Tile,target,Walkable);
             if(route.Count==0) return false;
-            var trip=trips[c.Id]; trip.PendingWood=0; trip.Rolled=false; trip.DeliveryId=Guid.NewGuid().ToString("N");
+            var trip=Record(c); trip.PendingWood=0; trip.Rolled=false; trip.DeliveryId=Guid.NewGuid().ToString("N");
             SetRoute(c,route,CitizenTask.GatheringWoodOutbound);
             return true;
         }
@@ -171,7 +174,7 @@ namespace ColonyGame.World
         // True means this task owns this frame's movement. Ordinary policy remains unchanged.
         public bool TickCitizen(Citizen c,double seconds,double speed)
         {
-            var trip=trips[c.Id];
+            var trip=Record(c);
             if(c.Movement==CitizenMovement.Recovering||!c.Active) return false;
             if(c.GatheringTask==CitizenTask.Recovery)
             {
@@ -180,7 +183,7 @@ namespace ColonyGame.World
             if(!HasTrip(c))
             {
                 trip.Cooldown-=seconds;
-                if(trip.Cooldown>0||!IsEligible(c)||simulation.Citizens.Count(HasTrip)>=bootstrap.Settings.MaximumGatherers||!TryBegin(c)) return false;
+                if(!AllowNewTrips||trip.Cooldown>0||!IsEligible(c)||simulation.Citizens.Count(HasTrip)>=bootstrap.Settings.MaximumGatherers||!TryBegin(c)) return false;
             }
             if(!IsEligible(c)&&c.GatheringTask!=CitizenTask.ReturningWood)
             {

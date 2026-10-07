@@ -25,7 +25,7 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void NearbyCitizenInterruptsPauseAndFleesAwayIntoDeeperWilderness()
         {
-            var state=SettlementState.CreatePrototype(); var system=Create(state); var animal=Animal(system); var c=Threat();
+            var state=SettlementState.CreatePrototype(4); var system=Create(state); var animal=Animal(system); var c=Threat();
             var threat=new WildlifePosition(c.Position.X,c.Position.Z); double before=animal.Position.DistanceSquared(threat);
             system.ReactToCitizens(new[]{c},4);
             Assert.AreEqual(WildlifeMovement.Fleeing,animal.Movement); Assert.IsTrue(animal.Moving);
@@ -34,20 +34,20 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void CitizenInterruptsActiveWanderingAndSelectsNearestThreat()
         {
-            var system=Create(SettlementState.CreatePrototype()); var animal=Animal(system); var c=Threat();
+            var system=Create(SettlementState.CreatePrototype(4)); var animal=Animal(system); var c=Threat();
             Set(animal,"Moving",true); Set(animal,"Destination",new WildlifePosition(20.5,11.5));
             system.ReactToCitizens(new[]{Threat(27.5,10.5),c},4);
             Assert.AreEqual(WildlifeMovement.Fleeing,animal.Movement); Assert.AreEqual(21.5,animal.Destination.X);
         }
         [Test] public void DistantCitizensDoNotTriggerFlee()
         {
-            var system=Create(SettlementState.CreatePrototype()); var animal=Animal(system);
+            var system=Create(SettlementState.CreatePrototype(4)); var animal=Animal(system);
             system.ReactToCitizens(new[]{Threat(10.5,10.5)},4);
             Assert.AreEqual(WildlifeMovement.Wandering,animal.Movement); Assert.IsFalse(animal.Moving);
         }
         [Test] public void AnimalStaysUnclaimedLeavesFleeAtSafetyAndResumesWandering()
         {
-            var state=SettlementState.CreatePrototype(); var system=Create(state); var animal=Animal(system); var c=Threat();
+            var state=SettlementState.CreatePrototype(4); var system=Create(state); var animal=Animal(system); var c=Threat();
             var habitat=new PeacefulWildernessHabitat(state.Territory,new WildlifeBounds(-12,-12,32,32));
             for(int i=0;i<300;i++)
             {
@@ -62,7 +62,7 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void ExpansionEvacuationOverridesCitizenFleeWithoutPositionJump()
         {
-            var state=SettlementState.CreatePrototype(); var system=Create(state); var animal=Animal(system); var c=Threat();
+            var state=SettlementState.CreatePrototype(4); var system=Create(state); var animal=Animal(system); var c=Threat();
             system.ReactToCitizens(new[]{c},4); var p=animal.Position;
             state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(17,8),0,out _);
             system.ReconcileTerritory(); system.ReactToCitizens(new[]{c},4);
@@ -73,7 +73,7 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void EveryPeacefulSpeciesUsesTheSameCitizenTriggerAndConfiguredRunSpeed()
         {
-            var system=Create(SettlementState.CreatePrototype()); var c=Threat();
+            var system=Create(SettlementState.CreatePrototype(4)); var c=Threat();
             foreach(var a in system.Animals) { Set(a,"Position",new WildlifePosition(20.5,10.5)); Set(a,"Destination",a.Position); Set(a,"Pause",20d); Set(a,"Moving",false); }
             system.ReactToCitizens(new[]{c},4); Assert.IsTrue(system.Animals.All(a=>a.Movement==WildlifeMovement.Fleeing));
             system.Tick(.25);

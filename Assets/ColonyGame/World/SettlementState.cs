@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace ColonyGame.World
@@ -36,10 +36,19 @@ namespace ColonyGame.World
         public int Depth { get; }
         public int OrientationDegrees { get; }
         public ConstructionStage ConstructionStage { get; internal set; }
-        public bool IsCompleted => ConstructionStage == ConstructionStage.Completed;
+        public bool IsCompleted => ConstructionStage == ConstructionStage.Completed || IsUpgrading;
+        public int Level { get; internal set; } = 1;
+        public bool IsUpgrading { get; internal set; }
+        public int TargetLevel { get; internal set; } = 1;
+        internal readonly Dictionary<ResourceType,int> investment = new Dictionary<ResourceType,int>();
+        public IReadOnlyDictionary<ResourceType,int> Investment => new System.Collections.ObjectModel.ReadOnlyDictionary<ResourceType,int>(investment);
+        internal void Invest(IReadOnlyDictionary<ResourceType,int> cost)
+        {
+            foreach(var item in cost) investment[item.Key]=investment.TryGetValue(item.Key,out int value)?checked(value+item.Value):item.Value;
+        }
         public double ConstructionWork { get; internal set; }
         public double RequiredConstructionWork { get; internal set; }
-        public double ConstructionProgress => IsCompleted ? 1 : RequiredConstructionWork <= 0 ? 0 : ConstructionWork / RequiredConstructionWork;
+        public double ConstructionProgress => ConstructionStage == ConstructionStage.Completed ? 1 : RequiredConstructionWork <= 0 ? 0 : ConstructionWork / RequiredConstructionWork;
         public bool IsStartingBuilding { get; }
         public bool TerritoryInfluenceApplied { get; private set; }
         public BuildingEntrance Entrance => BuildingEntrance.For(Definition,Origin,OrientationDegrees);
@@ -74,14 +83,14 @@ namespace ColonyGame.World
         private readonly HashSet<TileCoordinate> occupied = new HashSet<TileCoordinate>();
         public SettlementTerritory Territory { get; }
         public BuildingState TownHall { get; }
-        public int TownHallLevel { get; }
+        public int TownHallLevel => TownHall.Level;
         public IReadOnlyList<BuildingState> Buildings { get; }
         public IEnumerable<BuildingDefinition> AvailableBuildings => BuildingCatalog.AvailableAt(TownHallLevel);
         private SettlementState(SettlementTerritory territory, BuildingState townHall, int townHallLevel)
         {
             Territory = territory;
             TownHall = townHall;
-            TownHallLevel = townHallLevel;
+            TownHall.Level = TownHall.TargetLevel = townHallLevel;
             Buildings = buildings.AsReadOnly();
             AddBuilding(townHall);
         }
@@ -141,16 +150,23 @@ namespace ColonyGame.World
             building.MarkInfluenceApplied();
             return newlyClaimed;
         }
+        internal bool RemoveBuilding(BuildingState building)
+        {
+            if(building==TownHall||!buildings.Remove(building)) return false;
+            occupied.Clear();
+            foreach(var remaining in buildings) foreach(var tile in remaining.OccupiedTiles) occupied.Add(tile);
+            return true;
+        }
         private void AddBuilding(BuildingState building)
         {
             buildings.Add(building);
             foreach (var tile in building.OccupiedTiles) occupied.Add(tile);
         }
-        // Level 4 is a testing override, not the intended final new-game progression.
-        // Lower values initialize test settlements; there is no upgrade operation.
-        public static SettlementState CreatePrototype(int townHallLevel = 4)
+        // Explicit higher levels are available for focused domain fixtures.
+        // Runtime starts at Town Hall Level 1.
+        public static SettlementState CreatePrototype(int townHallLevel = 1)
         {
-            if (townHallLevel < 1 || townHallLevel > 4) throw new ArgumentOutOfRangeException(nameof(townHallLevel));
+            if (townHallLevel < 1 || townHallLevel > 5) throw new ArgumentOutOfRangeException(nameof(townHallLevel));
             var tiles = new List<TileCoordinate>();
             for (int z = 0; z < 20; z++)
                 for (int x = 0; x < 20; x++) tiles.Add(new TileCoordinate(x, z));

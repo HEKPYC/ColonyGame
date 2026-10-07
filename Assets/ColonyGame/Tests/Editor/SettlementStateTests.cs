@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using NUnit.Framework;
 
 namespace ColonyGame.World.Tests
@@ -8,7 +8,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void InitialTerritoryContainsExactlyTheExpected400Tiles()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.Territory.Count, Is.EqualTo(400));
             Assert.That(state.Territory.ClaimedTiles.Distinct().Count(), Is.EqualTo(400));
             for (int z = 0; z < 20; z++)
@@ -19,7 +19,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void WildernessCoordinatesAreNotClaimed()
         {
-            var territory = SettlementState.CreatePrototype().Territory;
+            var territory = SettlementState.CreatePrototype(4).Territory;
             for (int z = -6; z < 26; z++)
                 for (int x = -6; x < 26; x++)
                     if (x < 0 || x >= 20 || z < 0 || z >= 20)
@@ -30,7 +30,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void CompletedTownHallOccupies25ClaimedTilesWithoutExpansion()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             var hall = state.TownHall;
             Assert.That(hall.Id, Is.EqualTo("starting-town-hall"));
             Assert.That(hall.Type, Is.EqualTo(BuildingType.TownHall));

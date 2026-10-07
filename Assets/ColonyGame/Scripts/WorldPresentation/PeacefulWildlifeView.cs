@@ -43,6 +43,7 @@ namespace ColonyGame.Presentation
             }
             Sync();
         }
+        public void SetVisible(bool visible) { root.SetActive(visible); }
         public void Tick(float seconds) { system.Tick(seconds); Sync(); }
         public void Sync()
         {

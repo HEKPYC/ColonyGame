@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using NUnit.Framework;
 
@@ -73,17 +73,17 @@ namespace ColonyGame.World.Tests
         }
 
         [Test]
-        public void PrototypeLevelFourOverridePreservesStartingTerritoryAndHall()
+        public void PrototypeStartsAtLevelOneWithUnchangedTerritoryAndHall()
         {
             var state = SettlementState.CreatePrototype();
-            Assert.That(state.TownHallLevel, Is.EqualTo(4));
+            Assert.That(state.TownHallLevel, Is.EqualTo(1));
             Assert.That(state.Territory.Count, Is.EqualTo(400));
             Assert.That(state.Buildings.Count, Is.EqualTo(1));
             Assert.That(state.ApplyBuildingInfluence(state.TownHall), Is.Zero);
             Assert.That(state.Territory.Count, Is.EqualTo(400));
             Assert.That(state.TownHall.TerritoryInfluenceApplied, Is.False);
             Assert.Throws<ArgumentOutOfRangeException>(() => SettlementState.CreatePrototype(0));
-            Assert.Throws<ArgumentOutOfRangeException>(() => SettlementState.CreatePrototype(5));
+            Assert.Throws<ArgumentOutOfRangeException>(() => SettlementState.CreatePrototype(6));
         }
 
         [Test]
@@ -91,7 +91,7 @@ namespace ColonyGame.World.Tests
         {
             foreach (var definition in BuildingCatalog.AvailableAt(4))
             {
-                var state = SettlementState.CreatePrototype();
+                var state = SettlementState.CreatePrototype(4);
                 Assert.That(state.TryPlacePrototypeBuilding(definition.Type, new TileCoordinate(1, 1), 0, out var building), Is.True, definition.DisplayName);
                 Assert.That(building.Type, Is.EqualTo(definition.Type));
                 Assert.That(building.Definition, Is.SameAs(definition));
@@ -142,7 +142,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void RotatedOccupiedTilesAndStoredOrientationAreAuthoritative()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.Farm, new TileCoordinate(4, 3), 90, out var farm), Is.True);
             Assert.That(farm.OrientationDegrees, Is.EqualTo(90));
             Assert.That(farm.Width, Is.EqualTo(4));
@@ -159,7 +159,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void RotationChangesBoundaryAndTownHallOverlapValidation()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.ValidateBuildingPlacement(BuildingType.Farm, new TileCoordinate(16, 17), 0), Is.EqualTo(BuildingPlacementValidity.OutsideTerritory));
             Assert.That(state.ValidateBuildingPlacement(BuildingType.Farm, new TileCoordinate(16, 17), 90), Is.EqualTo(BuildingPlacementValidity.Valid));
             Assert.That(state.ValidateBuildingPlacement(BuildingType.Farm, new TileCoordinate(4, 7), 0), Is.EqualTo(BuildingPlacementValidity.Valid));
@@ -172,7 +172,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void GuardTowerHasEightByEightInfluenceAndTwentyFourTileEdgeExpansion()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.GuardTower, new TileCoordinate(18, 8), 0, out var tower), Is.True);
             AssertInfluence(tower, 15, 5, 8, 8);
             Assert.That(state.Territory.Count, Is.EqualTo(424));
@@ -183,7 +183,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void UnrotatedFarmHasNineByTenInfluenceAndThirtyTileEdgeExpansion()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.Farm, new TileCoordinate(17, 8), 0, out var farm), Is.True);
             AssertInfluence(farm, 14, 5, 9, 10);
             Assert.That(state.Territory.Count, Is.EqualTo(430));
@@ -194,7 +194,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void RotatedFarmHasTenByNineInfluenceAndTwentySevenTileEdgeExpansion()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.Farm, new TileCoordinate(16, 8), 90, out var farm), Is.True);
             AssertInfluence(farm, 13, 5, 10, 9);
             Assert.That(farm.InfluenceTiles.All(state.Territory.IsClaimed), Is.True);
@@ -206,7 +206,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void LaboratoryHasTwelveByTwelveInfluence()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.Laboratory, new TileCoordinate(14, 7), 0, out var lab), Is.True);
             AssertInfluence(lab, 11, 4, 12, 12);
             Assert.That(state.Territory.Count, Is.EqualTo(436));
@@ -215,7 +215,7 @@ namespace ColonyGame.World.Tests
         [Test]
         public void InvalidTypesAnglesAndExtremeCoordinatesDoNotMutateState()
         {
-            var state = SettlementState.CreatePrototype();
+            var state = SettlementState.CreatePrototype(4);
             var origin = new TileCoordinate(1, 1);
             Assert.That(state.ValidateBuildingPlacement((BuildingType)999, origin), Is.EqualTo(BuildingPlacementValidity.UnknownType));
             Assert.That(state.TryPlacePrototypeBuilding((BuildingType)999, origin, 0, out _), Is.False);
