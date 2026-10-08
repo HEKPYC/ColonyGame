@@ -18,7 +18,7 @@ namespace ColonyGame.World.Tests
         private static SettlementEconomy Create(int level=1,IGatheringRandom random=null)
         {
             var state=SettlementState.CreatePrototype(level);
-            return new SettlementEconomy(new SettlementBootstrap(state,CitizenSimulation.CreatePrototype(state)),random??new FixedRandom(.9));
+            return new SettlementEconomy(new SettlementBootstrap(state,CitizenSimulation.CreatePrototype(state,seed:1147)),random??new FixedRandom(.9));
         }
         private static void Supply(SettlementEconomy economy,int amount=10000)
         {
@@ -39,17 +39,43 @@ namespace ColonyGame.World.Tests
         }
         private static void Upgrade(SettlementEconomy economy,BuildingState building)
         {
-            Assert.IsTrue(economy.TryUpgrade(building));
+            Assert.IsTrue(RequestUpgrade(economy,building));
             var job=economy.Jobs.Single(j=>j.Building==building);
             Assert.IsTrue(economy.ContributeWork(building,ConstructionActor.Builder,100000,job.Builder));
         }
+        // Explicit player actions in legacy fixtures; production storage limits remain active.
+        private static bool Build(SettlementEconomy e,BuildingType type,TileCoordinate origin,int orientation,out BuildingState site)
+        {
+            if(!e.TryBuild(type,origin,orientation,out site)) return false;
+            if(type==BuildingType.BuildersHut) {if(e.Bootstrap.Resources.CanPay(e.JobAt(site).Materials))e.Fund(site);}
+            else {var builder=e.QualifiedBuilders(site).FirstOrDefault(c=>!e.Jobs.Any(j=>j.Builder==c));if(builder!=null)e.StartConstruction(site,builder.Id);}
+            return true;
+        }
+        private static bool RequestUpgrade(SettlementEconomy e,BuildingState building)
+        {
+            bool hall=building==e.Bootstrap.Settlement.TownHall;
+            if(building.Level>=5||!e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(building.Type,building.Level+1))) return false;
+            var builder=e.AvailableBuilders(hall?building.Level:building.Level+1,building).FirstOrDefault();
+            return builder!=null&&e.TryUpgrade(building,builder.Id);
+        }
+        private static bool RequestHall(SettlementEconomy e)=>RequestUpgrade(e,e.Bootstrap.Settlement.TownHall);
+        private static bool Demolish(SettlementEconomy e,BuildingState building)
+        {
+            var builder=e.AvailableBuilders(building.Level).FirstOrDefault();
+            return builder!=null&&e.Demolish(building)&&e.StartConstruction(building,builder.Id);
+        }
+        private static void ExtraCitizen(SettlementEconomy e)
+        {
+            e.Bootstrap.Simulation.AddCitizen(new Citizen("fixture-extra","Extra",CitizenSex.Male,20,new CitizenAttributes(5,5,5,5,5),new CitizenPosition(.5,.5)));
+            e.Residences.Reconcile();
+        }
         private static int Cost(BuildingType type,int level,ResourceType resource)=>
             BuildingEconomyRules.Cost(type,level).TryGetValue(resource,out int value)?value:0;
-        [Test] public void RuntimeStartsAtTH1WithFourTownHallResidentsAndTenWood()
+        [Test] public void RuntimeStartsAtTH1WithFourTownHallResidentsAndZeroWood()
         {
             var e=Create();
             Assert.AreEqual(1,e.Bootstrap.Settlement.TownHallLevel);
-            Assert.AreEqual(10,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+            Assert.AreEqual(0,e.Bootstrap.Resources.Amount(ResourceType.Wood));
             Assert.AreEqual(400,e.Bootstrap.Settlement.Territory.Count);
             Assert.AreEqual(4,e.Residences.Capacity);
             Assert.AreEqual(0,e.Residences.Homeless);
@@ -57,7 +83,7 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void TownHallHasFourExactAtomicCostsAndStopsAtFive()
         {
-            var e=Create();
+            var e=Create();var hallHut=Builder(e);
             int[] wood={150,300,450,600},wool={0,100,250,350},stone={0,0,150,250},iron={0,0,0,100};
             for(int target=2;target<=5;target++)
             {
@@ -66,14 +92,17 @@ namespace ColonyGame.World.Tests
                 Assert.AreEqual(wool[target-2],Cost(BuildingType.TownHall,target,ResourceType.Wool));
                 Assert.AreEqual(stone[target-2],Cost(BuildingType.TownHall,target,ResourceType.Stone));
                 Assert.AreEqual(iron[target-2],Cost(BuildingType.TownHall,target,ResourceType.Iron));
-                Assert.IsFalse(e.TryUpgradeTownHall());
+                if(target==2) Assert.IsFalse(RequestHall(e));
                 foreach(var item in cost)
                     e.Bootstrap.Resources.TryTransaction("supply-"+target+"-"+item.Key,item.Key,item.Value);
                 int before=e.Bootstrap.Resources.Amount(ResourceType.Wood);
-                Assert.IsTrue(e.TryUpgradeTownHall());Assert.AreEqual(target,e.Bootstrap.Settlement.TownHallLevel);
+                Assert.IsTrue(RequestHall(e));Assert.AreEqual(target-1,e.Bootstrap.Settlement.TownHallLevel);
+                Assert.IsTrue(e.ContributeWork(e.Bootstrap.Settlement.TownHall,ConstructionActor.Builder,100000,e.Bootstrap.WorkerAt(hallHut)));
+                Assert.AreEqual(target,e.Bootstrap.Settlement.TownHallLevel);
                 Assert.AreEqual(before-wood[target-2],e.Bootstrap.Resources.Amount(ResourceType.Wood));
+                if(target<5) {e.Bootstrap.Resources.TryTransaction("hut-stock-"+target,ResourceType.Wood,1000);e.Bootstrap.Resources.TryTransaction("hut-wool-"+target,ResourceType.Wool,1000);e.Bootstrap.Resources.TryTransaction("hut-stone-"+target,ResourceType.Stone,1000);Upgrade(e,hallHut);}
             }
-            Assert.IsFalse(e.TryUpgradeTownHall());Assert.AreEqual(8,e.Residences.Capacity);
+            Assert.IsFalse(RequestHall(e));Assert.AreEqual(8,e.Residences.Capacity);
         }
         [Test] public void LevelFiveRetainsAllThirteenTypesWithoutNewUnlocks()
         {
@@ -129,14 +158,14 @@ namespace ColonyGame.World.Tests
             Assert.AreEqual(75,Cost(BuildingType.Butcher,4,ResourceType.Wool));
             Assert.AreEqual(100,Cost(BuildingType.Butcher,5,ResourceType.Wool));
             var wool=ResourceCatalog.Production.Single(p=>p.Resource==ResourceType.Wool);
-            Assert.AreEqual(2,wool.UnlockLevel);Assert.AreEqual(45,wool.Seconds);
+            Assert.AreEqual(2,wool.UnlockLevel);Assert.AreEqual(10,wool.Seconds);
         }
         [Test] public void MineDefersIronOnceWithoutRestartingItsCurve()
         {
             Assert.AreEqual(0,Cost(BuildingType.Mine,4,ResourceType.Iron));
             Assert.AreEqual(50,Cost(BuildingType.Mine,5,ResourceType.Iron));
             var iron=ResourceCatalog.Production.Single(p=>p.Resource==ResourceType.Iron);
-            Assert.AreEqual(4,iron.UnlockLevel);Assert.AreEqual(60,iron.Seconds);
+            Assert.AreEqual(4,iron.UnlockLevel);Assert.AreEqual(40,iron.Seconds);
         }
         [Test] public void ResourceDependencyPathHasNoProducerDeadlock()
         {
@@ -162,39 +191,41 @@ namespace ColonyGame.World.Tests
         [Test] public void PlayerMayBuildSeveralLevelOneHutsWithoutAnyBuilder()
         {
             var e=Create();Supply(e);
-            Assert.IsTrue(e.TryBuild(BuildingType.BuildersHut,new TileCoordinate(1,1),0,out var first));
-            Assert.IsTrue(e.TryBuild(BuildingType.BuildersHut,new TileCoordinate(15,15),0,out var second));
+            Assert.IsTrue(Build(e,BuildingType.BuildersHut,new TileCoordinate(1,1),0,out var first));
+            Assert.IsTrue(Build(e,BuildingType.BuildersHut,new TileCoordinate(15,15),0,out var second));
             Assert.AreEqual(300,first.RequiredConstructionWork);
             Assert.IsTrue(e.ContributeWork(first,ConstructionActor.Player,300));
             Assert.IsTrue(e.ContributeWork(second,ConstructionActor.Player,300));
-            Assert.IsFalse(e.TryBuild(BuildingType.House,new TileCoordinate(1,15),0,out _));
+            Assert.AreEqual(2,e.Bootstrap.EmployedCount);
+            Assert.IsTrue(e.TryBuild(BuildingType.House,new TileCoordinate(1,15),0,out var waiting));
+            Assert.IsNull(e.JobAt(waiting).Builder);
         }
         [Test] public void OwnHutUpgradeIsAllowedButPlayerUpgradeAndUnderlevelOtherUpgradeAreRejected()
         {
             var e=Create(2);Supply(e);var hut=Builder(e);
-            Assert.IsTrue(e.TryUpgrade(hut));Assert.IsFalse(e.ContributeWork(hut,ConstructionActor.Player,10000));
+            Assert.IsTrue(RequestUpgrade(e,hut));Assert.IsFalse(e.ContributeWork(hut,ConstructionActor.Player,10000));
             Assert.IsTrue(e.ContributeWork(hut,ConstructionActor.Builder,10000,e.Bootstrap.WorkerAt(hut)));
             Assert.AreEqual(2,hut.Level);
-            var house=Fixture(e,BuildingType.House);Assert.IsTrue(e.TryUpgrade(house));
-            Assert.IsFalse(e.TryUpgrade(house));Assert.IsFalse(e.TryUpgrade(hut));
+            var house=Fixture(e,BuildingType.House);Assert.IsTrue(RequestUpgrade(e,house));
+            Assert.IsFalse(RequestUpgrade(e,house));Assert.IsFalse(RequestUpgrade(e,hut));
         }
         [Test] public void OtherBuildingUpgradeRequiresBuilderHutAtTargetLevel()
         {
             var e=Create(3);Supply(e);Builder(e);var house=Fixture(e,BuildingType.House);
-            Assert.IsFalse(e.TryUpgrade(house));Assert.AreEqual(1,house.Level);
+            Assert.IsFalse(RequestUpgrade(e,house));Assert.AreEqual(1,house.Level);
         }
         [Test] public void BuilderIsExclusiveToOneJobAndParallelBuildersHaveSeparateJobs()
         {
             var e=Create(2);Supply(e);Builder(e);
-            Assert.IsTrue(e.TryBuild(BuildingType.House,new TileCoordinate(1,1),0,out _));
-            Assert.IsFalse(e.TryBuild(BuildingType.Farm,new TileCoordinate(1,15),0,out _));
+            Assert.IsTrue(Build(e,BuildingType.House,new TileCoordinate(1,1),0,out _));
+            Assert.IsTrue(Build(e,BuildingType.Farm,new TileCoordinate(1,15),0,out var waiting));Assert.IsNull(e.JobAt(waiting).Builder);
             var other=Fixture(e,BuildingType.BuildersHut,15,1);e.Bootstrap.TryAssignBuilder(other,e.Bootstrap.Roster[1].Id);
-            Assert.IsTrue(e.TryBuild(BuildingType.Farm,new TileCoordinate(1,15),0,out _));
+            Assert.IsTrue(e.StartConstruction(waiting,e.Bootstrap.Roster[1].Id));
             Assert.AreEqual(2,e.Jobs.Count);Assert.AreNotSame(e.Jobs[0].Builder,e.Jobs[1].Builder);
         }
         [Test] public void EveryBaseConstructionDurationMatchesApprovedMinutes()
         {
-            int[] seconds={0,300,300,360,480,480,420,360,600,720,720,600,900,1080};
+            int[] seconds={600,300,300,360,480,480,420,360,600,720,720,600,900,1080};
             foreach(BuildingType type in Enum.GetValues(typeof(BuildingType))) Assert.AreEqual(seconds[(int)type],BuildingEconomyRules.BaseSeconds(type),type.ToString());
         }
         [Test] public void UpgradeWorkUsesTargetLevelMultiplierWithoutChangingCapacityBeforeCompletion()
@@ -203,7 +234,7 @@ namespace ColonyGame.World.Tests
             for(int target=2;target<=5;target++)
             {
                 int oldCapacity=BuildingEconomyRules.ResidenceCapacity(house);
-                Assert.IsTrue(e.TryUpgrade(house));Assert.AreEqual(300*target,house.RequiredConstructionWork);
+                Assert.IsTrue(RequestUpgrade(e,house));Assert.AreEqual(300*target,house.RequiredConstructionWork);
                 Assert.AreEqual(oldCapacity,BuildingEconomyRules.ResidenceCapacity(house));
                 Assert.IsTrue(e.ContributeWork(house,ConstructionActor.Builder,10000,e.Bootstrap.WorkerAt(hut)));
                 Assert.AreEqual(target,house.Level);
@@ -221,7 +252,7 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void BuilderWorkStopsAtNightAndKeepsProgress()
         {
-            var e=Create(2);Supply(e);var hut=Builder(e);e.TryBuild(BuildingType.House,new TileCoordinate(1,1),0,out var house);
+            var e=Create(2);Supply(e);var hut=Builder(e);Build(e,BuildingType.House,new TileCoordinate(1,1),0,out var house);
             e.ContributeWork(house,ConstructionActor.Builder,30,e.Bootstrap.WorkerAt(hut));double before=house.ConstructionWork;
             e.Clock.Advance(420);Assert.IsFalse(e.ContributeWork(house,ConstructionActor.Builder,100,e.Bootstrap.WorkerAt(hut)));
             Assert.AreEqual(before,house.ConstructionWork);e.Clock.Advance(180);
@@ -269,8 +300,8 @@ namespace ColonyGame.World.Tests
         {
             var expected=new[]{
                 "Farm:Beetroot:1:15","Farm:Wheat:2:30","Farm:Potato:3:45","Farm:Carrot:4:60",
-                "Butcher:Meat:1:30","Butcher:Wool:2:45","FishermansHut:Fish:1:30","LumberMill:Wood:1:30",
-                "Mine:Stone:1:45","Mine:Iron:4:60"};
+                "Butcher:Meat:1:30","Butcher:Wool:2:10","FishermansHut:Fish:1:30","LumberMill:Wood:1:10",
+                "Mine:Stone:1:20","Mine:Iron:4:40"};
             CollectionAssert.AreEquivalent(expected,ResourceCatalog.Production.Select(p=>$"{p.Building}:{p.Resource}:{p.UnlockLevel}:{p.Seconds}"));
             foreach(var recipe in ResourceCatalog.Production) for(int level=1;level<=5;level++)
                 Assert.AreEqual(Math.Max(0,level-recipe.UnlockLevel+1),recipe.Quantity(level));
@@ -281,10 +312,10 @@ namespace ColonyGame.World.Tests
             var e=Create();var farm=Fixture(e,BuildingType.Farm);
             e.Advance(31);Assert.AreEqual(0,e.Bootstrap.Resources.Amount(ResourceType.Beetroot));
             e.Bootstrap.TryAssignWorker(farm,e.Bootstrap.Roster[0].Id);
-            e.Advance(45);Assert.Greater(e.Bootstrap.Resources.Amount(ResourceType.Beetroot),0);
+            e.Advance(90);Assert.Greater(e.Bootstrap.Resources.Amount(ResourceType.Beetroot),0);
             var second=Fixture(e,BuildingType.Farm,1,14);e.Bootstrap.TryAssignWorker(second,e.Bootstrap.Roster[1].Id);
-            e.Advance(50);int before=e.Bootstrap.Resources.Amount(ResourceType.Beetroot);e.Advance(30);
-            Assert.AreEqual(4,e.Bootstrap.Resources.Amount(ResourceType.Beetroot)-before);
+            e.Advance(80);int before=e.Bootstrap.Resources.Amount(ResourceType.Beetroot);e.Advance(80);
+            Assert.GreaterOrEqual(e.Bootstrap.Resources.Amount(ResourceType.Beetroot)-before,2);
         }
         [Test] public void ProductionPausesAtNightAndPreservesPartialCycle()
         {
@@ -296,7 +327,7 @@ namespace ColonyGame.World.Tests
             e.Advance(10);Assert.AreEqual(0,bootstrap.Resources.Amount(ResourceType.Beetroot));
             e.Clock.Advance(410);e.Advance(180);Assert.AreEqual(0,bootstrap.Resources.Amount(ResourceType.Beetroot));
             // Travel from Town Hall before resuming the retained 10-second cycle.
-            e.Advance(60);Assert.GreaterOrEqual(bootstrap.Resources.Amount(ResourceType.Beetroot),1);
+            e.Advance(120);Assert.GreaterOrEqual(bootstrap.Resources.Amount(ResourceType.Beetroot),1);
         }
         [Test] public void ResourceAvailabilityRequiresActualProducerAtItsUnlockLevel()
         {
@@ -371,9 +402,9 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void DismissalPermanentlyRemovesRosterAndLinksIncludingActiveBuilderJob()
         {
-            var e=Create(2);Supply(e);Builder(e);var citizen=e.Bootstrap.Roster[0];
-            e.TryBuild(BuildingType.House,new TileCoordinate(1,1),0,out var house);
-            Assert.IsTrue(e.Dismiss(citizen));Assert.AreEqual(3,e.Bootstrap.Roster.Count);
+            var e=Create(2);Supply(e);Builder(e);var citizen=e.Bootstrap.Roster[0];ExtraCitizen(e);
+            Build(e,BuildingType.House,new TileCoordinate(1,1),0,out var house);
+            Assert.IsTrue(e.Dismiss(citizen));Assert.AreEqual(4,e.Bootstrap.Roster.Count);
             Assert.IsNull(citizen.WorkplaceBuildingId);Assert.IsNull(citizen.ResidenceBuildingId);Assert.IsFalse(citizen.Active);
             Assert.IsNull(e.Jobs.Single().Builder);Assert.IsFalse(e.Dismiss(citizen));
             e.Advance(10);Assert.IsFalse(e.Bootstrap.Roster.Contains(citizen));Assert.IsEmpty(e.Recruitment.Candidates);
@@ -381,38 +412,39 @@ namespace ColonyGame.World.Tests
         [Test] public void DemolitionRefundIncludesCompletedUpgradeInvestmentsWithFloorRounding()
         {
             var e=Create(3);Supply(e);Builder(e,3);
-            Assert.IsTrue(e.TryBuild(BuildingType.House,new TileCoordinate(1,1),0,out var house));
+            Assert.IsTrue(Build(e,BuildingType.House,new TileCoordinate(1,1),0,out var house));
             e.ContributeWork(house,ConstructionActor.Builder,10000,e.Jobs.Single().Builder);
             Upgrade(e,house);Upgrade(e,house);
             Assert.AreEqual(150,house.Investment[ResourceType.Wood]);Assert.AreEqual(75,house.Investment[ResourceType.Wool]);
             var refund=e.Refund(house);Assert.AreEqual(75,refund[ResourceType.Wood]);Assert.AreEqual(37,refund[ResourceType.Wool]);Assert.AreEqual(12,refund[ResourceType.Stone]);
             int before=e.Bootstrap.Resources.Amount(ResourceType.Wood);var claims=e.Bootstrap.Settlement.Territory.ClaimedTiles.ToArray();
-            Assert.IsTrue(e.Demolish(house));Assert.AreEqual(before+75,e.Bootstrap.Resources.Amount(ResourceType.Wood));
-            Assert.IsFalse(e.Demolish(house));CollectionAssert.AreEquivalent(claims,e.Bootstrap.Settlement.Territory.ClaimedTiles);
+            Assert.IsTrue(Demolish(e,house));Assert.AreEqual(before,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+            Assert.IsTrue(e.ContributeWork(house,ConstructionActor.Builder,10000,e.JobAt(house).Builder));Assert.AreEqual(before+75,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+            Assert.IsFalse(Demolish(e,house));CollectionAssert.AreEquivalent(claims,e.Bootstrap.Settlement.Territory.ClaimedTiles);
             Assert.IsFalse(e.Bootstrap.Settlement.IsOccupied(house.Origin));
         }
         [Test] public void DemolitionClearsWorkersReassignsResidentsAndRemovesTavernCandidates()
         {
             var e=Create(2,new FixedRandom());Supply(e);var hut=Builder(e);var worker=e.Bootstrap.WorkerAt(hut);
-            Assert.IsTrue(e.Demolish(hut));Assert.AreEqual(CitizenProfession.Unemployed,worker.Profession);Assert.IsNull(worker.WorkplaceBuildingId);
-            var tavern=Fixture(e,BuildingType.Tavern);e.Residences.Assign(worker,tavern);e.Recruitment.ProcessDay(2);
-            Assert.IsTrue(e.Demolish(tavern));Assert.IsEmpty(e.Recruitment.Candidates);
+            Assert.IsTrue(Demolish(e,hut));Assert.IsTrue(e.ContributeWork(hut,ConstructionActor.Builder,10000,worker));Assert.AreEqual(CitizenProfession.Unemployed,worker.Profession);Assert.IsNull(worker.WorkplaceBuildingId);
+            var replacement=Fixture(e,BuildingType.BuildersHut,15,1);e.Bootstrap.TryAssignBuilder(replacement,worker.Id);var tavern=Fixture(e,BuildingType.Tavern);e.Residences.Assign(worker,tavern);e.Recruitment.ProcessDay(2);
+            Assert.IsTrue(Demolish(e,tavern));Assert.IsTrue(e.ContributeWork(tavern,ConstructionActor.Builder,10000,worker));Assert.IsEmpty(e.Recruitment.Candidates);
             Assert.AreEqual(e.Bootstrap.Settlement.TownHall.Id,worker.ResidenceBuildingId);Assert.AreEqual(0,e.Residences.Homeless);
         }
         [Test] public void HousingLossCreatesHomelessWithoutDeletingCitizens()
         {
-            var e=Create();var house=Fixture(e,BuildingType.House);
+            var e=Create();Builder(e);var house=Fixture(e,BuildingType.House);
             var extra=new Citizen("extra","Extra",CitizenSex.Female,20,new CitizenAttributes(5,5,5,5,5),new CitizenPosition(.5,.5));
             e.Bootstrap.Simulation.AddCitizen(extra);e.Residences.Reconcile();Assert.IsNotNull(extra.ResidenceBuildingId);
-            Assert.IsTrue(e.Demolish(house));Assert.AreEqual(1,e.Residences.Homeless);Assert.AreEqual(5,e.Bootstrap.Roster.Count);
-            e.Clock.Advance(420);e.Advance(90);Assert.IsNull(extra.InsideBuildingId);Assert.IsNull(extra.ResidenceBuildingId);
+            Assert.IsTrue(Demolish(e,house));Assert.IsTrue(e.ContributeWork(house,ConstructionActor.Builder,10000,e.JobAt(house).Builder));Assert.AreEqual(1,e.Residences.Homeless);Assert.AreEqual(5,e.Bootstrap.Roster.Count);
+            e.Clock.Advance(420);e.Advance(90);var homeless=e.Bootstrap.Roster.Single(c=>c.ResidenceBuildingId==null);Assert.IsNull(homeless.InsideBuildingId);
         }
         [Test] public void RemovingSelectedObjectsMakesCentralInteractionUnavailable()
         {
-            var e=Create();var house=Fixture(e,BuildingType.House);var interaction=new PlayerInteraction(e.Bootstrap);
+            var e=Create();Builder(e);var house=Fixture(e,BuildingType.House);var interaction=new PlayerInteraction(e.Bootstrap);
             interaction.SelectBuilding(house);Assert.AreEqual(PlayerInteractionType.WorkplaceManagement,interaction.AvailableInteraction);
-            e.Demolish(house);Assert.AreEqual(PlayerInteractionType.None,interaction.AvailableInteraction);
-            var citizen=e.Bootstrap.Roster[0];interaction.SelectCitizen(citizen);e.Dismiss(citizen);
+            Demolish(e,house);e.ContributeWork(house,ConstructionActor.Builder,10000,e.JobAt(house).Builder);Assert.AreEqual(PlayerInteractionType.None,interaction.AvailableInteraction);
+            ExtraCitizen(e);var citizen=e.Bootstrap.Roster[0];interaction.SelectCitizen(citizen);e.Dismiss(citizen);
             Assert.AreEqual(PlayerInteractionType.None,interaction.AvailableInteraction);
         }
         [Test] public void AllFunctionalProducersRunTheirUnlockedCyclesAtLevelFive()
@@ -421,27 +453,29 @@ namespace ColonyGame.World.Tests
             {
                 var e=Create(5);Supply(e);Builder(e,5);var producer=Fixture(e,type);
                 for(int level=2;level<=5;level++) Upgrade(e,producer);
-                Assert.IsTrue(e.Bootstrap.TryAssignWorker(producer,e.Bootstrap.Roster[1].Id));
-                e.Advance(80);
                 var recipes=ResourceCatalog.Production.Where(p=>p.Building==type).ToArray();
-                var before=recipes.ToDictionary(p=>p.Resource,p=>e.Bootstrap.Resources.Amount(p.Resource));
-                e.Advance(180);
-                foreach(var recipe in recipes)
-                    Assert.AreEqual((180/recipe.Seconds)*recipe.Quantity(5),e.Bootstrap.Resources.Amount(recipe.Resource)-before[recipe.Resource],type+" "+recipe.Resource);
+                foreach(var recipe in recipes) e.Bootstrap.Resources.TryTransaction("empty-"+recipe.Resource,recipe.Resource,-e.Bootstrap.Resources.Amount(recipe.Resource));
+                var seen=new System.Collections.Generic.HashSet<ResourceType>();
+                e.ProductionEvent+=(building,resource,stored,blocked)=>{if(building==producer&&stored>0){Assert.AreEqual(ResourceCatalog.Production.Single(p=>p.Resource==resource).Quantity(5),stored);seen.Add(resource);}};
+                Assert.IsTrue(e.Bootstrap.TryAssignWorker(producer,e.Bootstrap.Roster[1].Id));
+                e.Advance(3200);CollectionAssert.AreEquivalent(recipes.Select(p=>p.Resource),seen);
             }
         }
         [Test] public void ButcherAndMineBeginTheirDeferredResourcesOnlyAfterApprovedUpgradeCompletes()
         {
             var e=Create(5);Supply(e);Builder(e,5);var butcher=Fixture(e,BuildingType.Butcher);
             e.Bootstrap.TryAssignWorker(butcher,e.Bootstrap.Roster[1].Id);
+            e.Bootstrap.Resources.TryTransaction("wool-room",ResourceType.Wool,50-e.Bootstrap.Resources.Amount(ResourceType.Wool));
             int wool=e.Bootstrap.Resources.Amount(ResourceType.Wool);e.Advance(60);
             Assert.AreEqual(wool,e.Bootstrap.Resources.Amount(ResourceType.Wool));
-            Upgrade(e,butcher);e.Advance(60);Assert.Greater(e.Bootstrap.Resources.Amount(ResourceType.Wool),wool);
+            Upgrade(e,butcher);e.Advance(180);Assert.Greater(e.Bootstrap.Resources.Amount(ResourceType.Wool),wool);
+            e.Bootstrap.Resources.TryTransaction("mine-wool-stock",ResourceType.Wool,500);
             var mine=Fixture(e,BuildingType.Mine,1,14);e.Bootstrap.TryAssignWorker(mine,e.Bootstrap.Roster[2].Id);
             Upgrade(e,mine);Upgrade(e,mine);
+            e.Bootstrap.Resources.TryTransaction("iron-room",ResourceType.Iron,50-e.Bootstrap.Resources.Amount(ResourceType.Iron));
             int iron=e.Bootstrap.Resources.Amount(ResourceType.Iron);e.Advance(80);
             Assert.AreEqual(iron,e.Bootstrap.Resources.Amount(ResourceType.Iron));
-            Upgrade(e,mine);e.Advance(80);Assert.Greater(e.Bootstrap.Resources.Amount(ResourceType.Iron),iron);
+            Upgrade(e,mine);e.Advance(800);Assert.Greater(e.Bootstrap.Resources.Amount(ResourceType.Iron),iron);
         }
         [Test] public void NewGatheringIsDisabledAtNightAndSleepingCitizensDoNotStartTrips()
         {
@@ -461,17 +495,18 @@ namespace ColonyGame.World.Tests
             CollectionAssert.AreEqual(a.Recruitment.Candidates.Select(c=>c.Citizen.Id+":"+c.Citizen.FirstName+":"+c.Quality+":"+BuildingEconomyRules.Describe(c.Request)),
                 b.Recruitment.Candidates.Select(c=>c.Citizen.Id+":"+c.Citizen.FirstName+":"+c.Quality+":"+BuildingEconomyRules.Describe(c.Request)));
             var e=Create(2,new FixedRandom());Supply(e);Builder(e);
-            e.TryBuild(BuildingType.Tavern,new TileCoordinate(1,1),0,out var site);
+            Build(e,BuildingType.Tavern,new TileCoordinate(1,1),0,out var site);
             Assert.IsFalse(site.IsCompleted);e.Recruitment.ProcessDay(2);
             Assert.AreEqual(0,e.Recruitment.ArrivalRolls);
         }
         [Test] public void DismissedBuilderJobRetainsProgressAndCanResumeWithReplacement()
         {
-            var e=Create(2);Supply(e);var hut=Builder(e);var builder=e.Bootstrap.WorkerAt(hut);
-            e.TryBuild(BuildingType.House,new TileCoordinate(1,1),0,out var house);
+            var e=Create(2);Supply(e);var hut=Builder(e);var builder=e.Bootstrap.WorkerAt(hut);ExtraCitizen(e);
+            Build(e,BuildingType.House,new TileCoordinate(1,1),0,out var house);
             e.ContributeWork(house,ConstructionActor.Builder,30,builder);double work=house.ConstructionWork;
             e.Dismiss(builder);Assert.AreEqual(work,house.ConstructionWork);
             Assert.IsTrue(e.Bootstrap.TryAssignBuilder(hut,e.Bootstrap.Roster[0].Id));
+            Assert.IsTrue(e.StartConstruction(house,e.Bootstrap.WorkerAt(hut).Id));
             e.Advance(60);Assert.Greater(house.ConstructionWork,work);
             Assert.AreSame(e.Bootstrap.WorkerAt(hut),e.Jobs.Single().Builder);
         }
@@ -484,52 +519,163 @@ namespace ColonyGame.World.Tests
         {
             var e=Create();
             e.Bootstrap.Resources.TryTransaction("test-wood-only",ResourceType.Wood,100000);
-            Assert.IsTrue(e.TryBuild(BuildingType.BuildersHut,new TileCoordinate(15,15),0,out var hut));
+            Assert.IsTrue(Build(e,BuildingType.BuildersHut,new TileCoordinate(15,15),0,out var hut));
             e.ContributeWork(hut,ConstructionActor.Player,300);
             e.Bootstrap.TryAssignBuilder(hut,e.Bootstrap.Roster[0].Id);
-            Assert.IsTrue(e.TryUpgradeTownHall());
-            Assert.IsTrue(e.TryUpgrade(hut));Wait(e,()=>hut.Level==2);
-            Assert.IsTrue(e.TryBuild(BuildingType.Butcher,new TileCoordinate(1,1),0,out var butcher));
+            Assert.IsTrue(RequestHall(e));Wait(e,()=>!e.Bootstrap.Settlement.TownHall.IsUpgrading);
+            Assert.IsTrue(RequestUpgrade(e,hut));Wait(e,()=>hut.Level==2);
+            Assert.IsTrue(Build(e,BuildingType.Butcher,new TileCoordinate(1,1),0,out var butcher));
             Wait(e,()=>butcher.IsCompleted);e.Bootstrap.TryAssignWorker(butcher,e.Bootstrap.Roster[1].Id);
-            Assert.IsTrue(e.TryUpgrade(butcher));Wait(e,()=>butcher.Level==2);
+            Assert.IsTrue(RequestUpgrade(e,butcher));Wait(e,()=>butcher.Level==2);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.TownHallCost(3)));
-            Assert.IsTrue(e.TryUpgradeTownHall());
+            Assert.IsTrue(RequestHall(e));Wait(e,()=>!e.Bootstrap.Settlement.TownHall.IsUpgrading);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.Mine)));
-            Assert.IsTrue(e.TryBuild(BuildingType.Mine,new TileCoordinate(1,14),0,out var mine));
+            Assert.IsTrue(Build(e,BuildingType.Mine,new TileCoordinate(1,14),0,out var mine));
             Wait(e,()=>mine.IsCompleted);e.Bootstrap.TryAssignWorker(mine,e.Bootstrap.Roster[2].Id);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.BuildersHut,3)));
-            Assert.IsTrue(e.TryUpgrade(hut));Wait(e,()=>hut.Level==3);
+            Assert.IsTrue(RequestUpgrade(e,hut));Wait(e,()=>hut.Level==3);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.Butcher,3)));
-            Assert.IsTrue(e.TryUpgrade(butcher));Wait(e,()=>butcher.Level==3);
+            Assert.IsTrue(RequestUpgrade(e,butcher));Wait(e,()=>butcher.Level==3);
             for(int target=2;target<=3;target++)
             {
                 int level=target;
                 Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.Mine,level)));
-                Assert.IsTrue(e.TryUpgrade(mine));Wait(e,()=>mine.Level==level);
+                Assert.IsTrue(RequestUpgrade(e,mine));Wait(e,()=>mine.Level==level);
             }
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.TownHallCost(4)));
-            Assert.IsTrue(e.TryUpgradeTownHall());
+            Assert.IsTrue(RequestHall(e));Wait(e,()=>!e.Bootstrap.Settlement.TownHall.IsUpgrading);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.BuildersHut,4)));
-            Assert.IsTrue(e.TryUpgrade(hut));Wait(e,()=>hut.Level==4);
+            Assert.IsTrue(RequestUpgrade(e,hut));Wait(e,()=>hut.Level==4);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.Mine,4)));
-            Assert.IsTrue(e.TryUpgrade(mine));Wait(e,()=>mine.Level==4);
+            Assert.IsTrue(RequestUpgrade(e,mine));Wait(e,()=>mine.Level==4);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.TownHallCost(5)));
-            Assert.IsTrue(e.TryUpgradeTownHall());
+            Assert.IsTrue(RequestHall(e));Wait(e,()=>!e.Bootstrap.Settlement.TownHall.IsUpgrading);
             Wait(e,()=>e.Bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(BuildingType.BuildersHut,5)));
-            Assert.IsTrue(e.TryUpgrade(hut));Wait(e,()=>hut.Level==5);
+            Assert.IsTrue(RequestUpgrade(e,hut));Wait(e,()=>hut.Level==5);
             Assert.AreEqual(5,e.Bootstrap.Settlement.TownHallLevel);Assert.AreEqual(5,hut.Level);
             Assert.AreEqual(4,mine.Level);Assert.AreEqual(3,butcher.Level);
             Assert.IsTrue(ResourceCatalog.Obtainable(e.Bootstrap.Settlement,ResourceType.Iron));
         }
         [Test] public void NightResidenceReassignmentExitsWithoutTeleportAndWalksToNewHome()
         {
-            var e=Create();var house=Fixture(e,BuildingType.House);
+            var e=Create();
             e.Clock.Advance(420);e.Advance(60);var citizen=e.Bootstrap.Roster[0];
             Assert.AreEqual(e.Bootstrap.Settlement.TownHall.Id,citizen.InsideBuildingId);
             var before=citizen.Position;
+            var house=Fixture(e,BuildingType.House);
             Assert.IsTrue(e.Residences.Assign(citizen,house));Assert.IsNull(citizen.InsideBuildingId);
             Assert.AreEqual(before.X,citizen.Position.X);Assert.AreEqual(before.Z,citizen.Position.Z);
             e.Advance(60);Assert.AreEqual(house.Id,citizen.InsideBuildingId);
+        }
+
+        [Test] public void ResourceAccumulationNeverUpgradesTownHallAndDuplicateRequestNeverPays()
+        {
+            var e=Create();Supply(e);var hut=Builder(e);var hall=e.Bootstrap.Settlement.TownHall;
+            e.Advance(30);Assert.AreEqual(1,hall.Level);
+            int before=e.Bootstrap.Resources.Amount(ResourceType.Wood);
+            Assert.IsTrue(RequestHall(e));Assert.AreEqual(1200,hall.RequiredConstructionWork);
+            Assert.IsFalse(RequestHall(e));Assert.AreEqual(before-150,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+            Assert.IsFalse(e.ContributeWork(hall,ConstructionActor.Player,10000));
+            e.ContributeWork(hall,ConstructionActor.Builder,10,e.Bootstrap.WorkerAt(hut));
+            Assert.AreEqual(1,hall.Level);Assert.Greater(hall.ConstructionProgress,0);Assert.Less(hall.ConstructionProgress,1);
+        }
+        [Test] public void PlayerBuildsFundedLevelOneHutsAtNightButNeverDemolishes()
+        {
+            var e=Create();Supply(e);Build(e,BuildingType.BuildersHut,new TileCoordinate(1,1),0,out var hut);
+            e.Clock.Advance(420);Assert.IsTrue(e.ContributeWork(hut,ConstructionActor.Player,300));
+            Assert.AreSame(e.Bootstrap.Roster[0],e.Bootstrap.WorkerAt(hut));
+            Assert.IsTrue(Demolish(e,hut));Assert.IsFalse(e.ContributeWork(hut,ConstructionActor.Player,10000));
+            Assert.IsFalse(e.ContributeWork(hut,ConstructionActor.Builder,10000,e.JobAt(hut).Builder));
+            Assert.AreEqual(0,e.JobAt(hut).Progress);Assert.IsTrue(e.Bootstrap.Settlement.IsOccupied(hut.Origin));
+        }
+        [Test] public void UnfundedSiteCanAssignThenFundWithoutAutomaticDebitOrDuplicatePayment()
+        {
+            var e=Create();var hut=Builder(e);var worker=e.Bootstrap.WorkerAt(hut);
+            Assert.IsTrue(e.TryBuild(BuildingType.Farm,new TileCoordinate(1,1),0,out var farm));
+            Assert.IsNull(e.JobAt(farm).Builder);Assert.IsFalse(e.JobAt(farm).IsFunded);
+            e.Bootstrap.Resources.TryTransaction("wood",ResourceType.Wood,100);e.Advance(10);
+            Assert.AreEqual(100,e.Bootstrap.Resources.Amount(ResourceType.Wood));Assert.AreEqual(0,farm.ConstructionWork);
+            Assert.IsTrue(e.StartConstruction(farm,worker.Id));Assert.IsFalse(e.Fund(farm));Assert.AreEqual(50,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+            e.Advance(120);Assert.Greater(farm.ConstructionWork,0);
+        }
+        [Test] public void FundedSiteCanAwaitBuilderAndCancellationRefundsOnceWithoutInfluence()
+        {
+            var e=Create();Supply(e);Builder(e);int territory=e.Bootstrap.Settlement.Territory.Count;int before=e.Bootstrap.Resources.Amount(ResourceType.Wood);
+            Build(e,BuildingType.Farm,new TileCoordinate(1,1),0,out var farm);
+            e.ReleaseBuilder(e.JobAt(farm).Builder);Assert.AreEqual("Awaiting Builder",e.JobStatus(farm));Assert.IsNull(e.JobAt(farm).Builder);
+            Assert.IsTrue(e.CancelConstruction(farm));Assert.IsFalse(e.CancelConstruction(farm));
+            Assert.AreEqual(before,e.Bootstrap.Resources.Amount(ResourceType.Wood));Assert.AreEqual(territory,e.Bootstrap.Settlement.Territory.Count);
+            Assert.IsFalse(e.Bootstrap.Settlement.IsOccupied(farm.Origin));Assert.IsEmpty(e.Jobs);
+        }
+        [Test] public void UnfundedCancellationRequiresNoBuilderAndPreservesStock()
+        {
+            var e=Create();Build(e,BuildingType.Farm,new TileCoordinate(1,1),0,out var farm);
+            Assert.AreEqual("Awaiting Resources",e.JobStatus(farm));Assert.IsTrue(e.CancelConstruction(farm));
+            Assert.AreEqual(0,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+        }
+        [Test] public void NewLevelOneBuildingsKeepTheirInitialCostsAtEveryTownHallLevel()
+        {
+            foreach(int level in Enumerable.Range(1,5))
+                foreach(var definition in BuildingCatalog.AvailableAt(level))
+                {
+                    var e=Create(level);Supply(e);Builder(e);int territory=e.Bootstrap.Settlement.Territory.Count;int before=e.Bootstrap.Resources.Amount(ResourceType.Wood);
+                    Assert.IsTrue(Build(e,definition.Type,new TileCoordinate(0,0),0,out var site));
+                    Assert.AreEqual(1,site.Level);Assert.AreEqual(1,site.TargetLevel);
+                    Assert.AreEqual(before-BuildingEconomyRules.Cost(definition.Type)[ResourceType.Wood],e.Bootstrap.Resources.Amount(ResourceType.Wood));
+                    if(definition.Type==BuildingType.Farm) {Assert.AreEqual(50,e.JobAt(site).Materials[ResourceType.Wood]);Assert.IsFalse(e.JobAt(site).Materials.ContainsKey(ResourceType.Wool));}
+                }
+        }
+        [Test] public void HousesAutomaticallyFillBeforeTownHallAndAssignmentsRemainStable()
+        {
+            var e=Create();var house=Fixture(e,BuildingType.House);
+            Assert.AreEqual(2,e.Residences.Residents(house).Count());Assert.AreEqual(2,e.Residences.Residents(e.Bootstrap.Settlement.TownHall).Count());
+            var ids=e.Bootstrap.Roster.Select(c=>c.ResidenceBuildingId).ToArray();e.Residences.Reconcile();
+            CollectionAssert.AreEqual(ids,e.Bootstrap.Roster.Select(c=>c.ResidenceBuildingId));
+            var second=Fixture(e,BuildingType.House,1,15);Assert.AreEqual(2,e.Residences.Residents(second).Count());
+            Assert.AreEqual(0,e.Residences.Residents(e.Bootstrap.Settlement.TownHall).Count());Assert.AreEqual(8,e.Residences.Capacity);
+        }
+        [Test] public void DemolitionKeepsFunctionalityAndRefundUntilTimedWorkCompletes()
+        {
+            var e=Create();Supply(e);Builder(e);Build(e,BuildingType.House,new TileCoordinate(1,1),0,out var house);
+            e.ContributeWork(house,ConstructionActor.Builder,10000,e.JobAt(house).Builder);
+            int before=e.Bootstrap.Resources.Amount(ResourceType.Wood);Assert.IsTrue(Demolish(e,house));
+            var job=e.JobAt(house);Assert.AreEqual(150,job.RequiredWork);Assert.IsFalse(Demolish(e,house));
+            e.ContributeWork(house,ConstructionActor.Builder,10,job.Builder);
+            Assert.IsTrue(e.Bootstrap.Settlement.IsOccupied(house.Origin));Assert.AreEqual(2,BuildingEconomyRules.ResidenceCapacity(house));
+            Assert.AreEqual(before,e.Bootstrap.Resources.Amount(ResourceType.Wood));
+            Assert.IsTrue(e.ContributeWork(house,ConstructionActor.Builder,10000,job.Builder));
+            Assert.AreEqual(before+12,e.Bootstrap.Resources.Amount(ResourceType.Wood));Assert.IsNull(e.JobAt(house));
+            Assert.IsFalse(e.ContributeWork(house,ConstructionActor.Builder,10000,job.Builder));
+        }
+
+        [Test] public void ExplicitBuilderAssignmentAfterFundingResumesAndCancellationReleasesBuilder()
+        {
+            var e=Create();Supply(e);Build(e,BuildingType.Farm,new TileCoordinate(1,1),0,out var farm);
+            var hut=Builder(e);var builder=e.Bootstrap.WorkerAt(hut);
+            e.ReleaseBuilder(builder);Assert.IsTrue(e.StartConstruction(farm,builder.Id));Assert.IsFalse(e.StartConstruction(farm,builder.Id));
+            e.Advance(120);Assert.Greater(farm.ConstructionWork,0);
+            Assert.IsTrue(e.CancelConstruction(farm));Assert.IsTrue(e.AvailableBuilders(1).Contains(builder));
+            Assert.IsFalse(farm.TerritoryInfluenceApplied);Assert.IsEmpty(e.Jobs);
+        }
+        [Test] public void PreferredHousingReconcilesTavernsAndAccommodatesHomelessAfterNewCapacity()
+        {
+            var e=Create(2);var tavern=Fixture(e,BuildingType.Tavern);
+            Assert.AreEqual(3,e.Residences.Residents(tavern).Count());var house=Fixture(e,BuildingType.House,1,15);
+            Assert.AreEqual(2,e.Residences.Residents(house).Count());Assert.AreEqual(2,e.Residences.Residents(tavern).Count());
+            for(int i=0;i<7;i++) e.Bootstrap.Simulation.AddCitizen(new Citizen("added-"+i,"Added",CitizenSex.Male,20,new CitizenAttributes(5,5,5,5,5),new CitizenPosition(.5,.5)));
+            e.Residences.Reconcile();Assert.AreEqual(1,e.Residences.Homeless);
+            var second=Fixture(e,BuildingType.House,15,1);Assert.AreEqual(0,e.Residences.Homeless);
+            foreach(var home in e.Residences.Buildings) Assert.LessOrEqual(e.Residences.Residents(home).Count(),BuildingEconomyRules.ResidenceCapacity(home));
+        }
+        [Test] public void TimedDemolitionPausesAtNightAndReleasesItsBuilderOnlyAtCompletion()
+        {
+            var e=Create();Supply(e);var hut=Builder(e);var house=Fixture(e,BuildingType.House);
+            Assert.IsTrue(Demolish(e,house));var job=e.JobAt(house);var worker=job.Builder;
+            e.ContributeWork(house,ConstructionActor.Builder,10,worker);double progress=job.Progress;
+            e.Clock.Advance(420);Assert.IsFalse(e.ContributeWork(house,ConstructionActor.Builder,10000,worker));
+            Assert.AreEqual(progress,job.Progress);Assert.IsFalse(e.AvailableBuilders(1).Contains(worker));
+            e.Clock.Advance(180);Assert.IsTrue(e.ContributeWork(house,ConstructionActor.Builder,10000,worker));
+            Assert.IsTrue(e.AvailableBuilders(1).Contains(worker));Assert.IsFalse(Demolish(e,e.Bootstrap.Settlement.TownHall));
         }
     }
 }

@@ -50,9 +50,12 @@ namespace ColonyGame.Presentation
         private int minX = -6, minZ = -6, maxX = 26, maxZ = 26;
         public SettlementState State { get; private set; }
 
+        private static SettlementEconomy activeSession;
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetSession()=>activeSession=null;
         private void Start()
         {
-            State = SettlementState.CreatePrototype();
+            State = activeSession?.Bootstrap.Settlement??SettlementState.CreatePrototype();
             hud = new PrototypeHud(transform, State.AvailableBuildings, SelectBuilding, CancelPlacement);
             hud.BuildListOpened += () => { SelectCitizen(null); hud.ShowBuilding(null); };
             palette = new PrototypePalette(hallWalls);
@@ -71,10 +74,11 @@ namespace ColonyGame.Presentation
             wildlifeView = new PeacefulWildlifeView(transform, wildlife, palette);
             citizens = CitizenSimulation.CreatePrototype(State, new CitizenMovementSettings(citizenWalkSpeed, citizenMinimumPause, citizenMaximumPause));
             citizenView = new CitizenView(transform, citizens, palette);
-            bootstrap = new SettlementBootstrap(State,citizens,bootstrapSettings);
-            citizens.Gathering = new AmbientWoodGathering(bootstrap);
-            economy = new SettlementEconomy(bootstrap);
+            bootstrap = activeSession?.Bootstrap??new SettlementBootstrap(State,citizens,bootstrapSettings);
+            if(citizens.Gathering==null) citizens.Gathering = new AmbientWoodGathering(bootstrap);
+            economy = activeSession??new SettlementEconomy(bootstrap);activeSession=economy;
             economy.PresentationChanged += RefreshPresentation;
+            economy.ProductionEvent += OnProduction;
             ambience = new SettlementAmbience(transform,economy,palette,tileMaterials);
             playerInteraction = new PlayerInteraction(bootstrap);
             hud.BindBootstrap(bootstrap,SelectCitizen);
@@ -103,6 +107,19 @@ namespace ColonyGame.Presentation
             foreach (var building in State.Buildings)
                 SchematicBuildingView.Create(building, generatedRoot.transform, palette);
             CreateForest();
+            pathLines.Clear();
+            var gold=palette.Get(new Color(.82f,.77f,.58f));
+            foreach(var segment in PerimeterNavigation.Segments(State.Buildings))
+            {
+                var path=new GameObject("Thin golden pedestrian path");path.transform.SetParent(generatedRoot.transform,false);
+                var line=path.AddComponent<LineRenderer>();line.useWorldSpace=false;line.positionCount=2;
+                line.SetPosition(0,new Vector3((float)segment.Start.X,.025f,(float)segment.Start.Z));
+                line.SetPosition(1,new Vector3((float)segment.End.X,.025f,(float)segment.End.Z));
+                line.sharedMaterial=gold;line.alignment=LineAlignment.View;
+                line.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;line.receiveShadows=false;
+                pathLines.Add(line);
+            }
+            UpdatePathWidths();
             citizens?.ReconcileBuildings();
             citizenView?.Sync(selectedCitizen);
             if (wildlifeHabitat != null)
@@ -158,7 +175,7 @@ namespace ColonyGame.Presentation
                 {
                     if (State.Territory.IsClaimed(new TileCoordinate(x, z))) continue;
                     int pattern = ((x + 6) * 17 + (z + 6) * 31) % 11;
-                    if (pattern != 0) continue;
+                    if (!PrototypePresentationRules.ForestCell(x,z)) continue;
                     var position = new Vector3(x + 0.5f, 0, z + 0.5f);
                     Primitive("Decorative Tree Trunk", PrimitiveType.Cylinder, position + Vector3.up * 0.3f, new Vector3(0.18f, 0.3f, 0.18f), treeTrunk);
                     Primitive("Decorative Tree Canopy", PrimitiveType.Sphere, position + Vector3.up * 0.75f, new Vector3(0.65f, 0.8f, 0.65f), treeCanopy);
@@ -247,7 +264,7 @@ namespace ColonyGame.Presentation
             if(playerInteraction.AvailableInteraction==PlayerInteractionType.ManualConstruction&&
                 hud.ManagedBuilding!=playerInteraction.BuildingTarget) blocked=true;
             var result=playerInteraction.Act(pressed,keyboard.eKey.isPressed,Time.deltaTime*economy.Clock.Speed,blocked);
-            ambience.ShowPlayerWork(playerInteraction.BuildingTarget,!blocked&&keyboard.eKey.isPressed&&economy.Clock.IsDay&&result.Type==PlayerInteractionType.ManualConstruction);
+            ambience.ShowPlayerWork(playerInteraction.BuildingTarget,!blocked&&keyboard.eKey.isPressed&&result.Type==PlayerInteractionType.ManualConstruction);
             switch(result.Type)
             {
                 case PlayerInteractionType.TownHallManagement:
@@ -274,6 +291,12 @@ namespace ColonyGame.Presentation
         }
         private void Update()
         {
+            if(generatedRoot!=null&&State!=null)
+                foreach(var building in State.Buildings)
+                {
+                    var visual=generatedRoot.transform.Find(building.Id);
+                    if(visual!=null) SchematicBuildingView.UpdateConstruction(building,visual);
+                }
             if (State == null || hud == null) return;
             economy.Advance(Time.deltaTime,(step,day)=>
             {
@@ -285,6 +308,7 @@ namespace ColonyGame.Presentation
                     wildlifeView.Tick((float)step);
                 }
             });
+            if(selectedCitizen!=null&&!bootstrap.Roster.Contains(selectedCitizen)) SelectCitizen(null);
             ambience.Update(Time.deltaTime);
             var keyboard = Keyboard.current;
             if (keyboard != null)
@@ -357,16 +381,27 @@ namespace ColonyGame.Presentation
                 foreach (var cell in previewCells) cell.sharedMaterial = material;
             }
         }
+        private readonly System.Collections.Generic.List<LineRenderer> pathLines=new System.Collections.Generic.List<LineRenderer>();
+        private void UpdatePathWidths()
+        {
+            var camera=Camera.main;if(camera==null||camera.pixelHeight<=0) return;
+            foreach(var line in pathLines)
+            {
+                float distance=Vector3.Distance(camera.transform.position,line.transform.TransformPoint(line.GetPosition(0)));
+                float span=camera.orthographic?camera.orthographicSize*2:2*distance*Mathf.Tan(camera.fieldOfView*Mathf.Deg2Rad*.5f);
+                line.startWidth=line.endWidth=span/camera.pixelHeight*1.5f;
+            }
+        }
         private void LateUpdate()
         {
+            UpdatePathWidths();
             if (State != null && hud != null)
                 hud.Update(State, selectedBuilding, orientationDegrees, hasCursorTile ? $"{PlacementStatus(placementValidity)} | {cursorTile}" : "Move cursor onto ground", economy.Clock.IsDay ? wildlife?.Animals.Count(a => a.Active) ?? 0 : 0, citizens?.Citizens.Count(a => a.Active) ?? 0);
         }
         private BuildingPlacementValidity ValidateBootstrapPlacement()
         {
-            var geometric=State.ValidateBuildingPlacement(selectedBuilding.Type,cursorTile,orientationDegrees);
+            var geometric=State.ValidateAccessiblePlacement(selectedBuilding.Type,cursorTile,orientationDegrees);
             if(geometric!=BuildingPlacementValidity.Valid) return geometric;
-            if(!bootstrap.Resources.CanPay(BuildingEconomyRules.Cost(selectedBuilding.Type))) return BuildingPlacementValidity.InsufficientResources;
             return economy.CanBuild(selectedBuilding.Type)?BuildingPlacementValidity.Valid:BuildingPlacementValidity.ConstructionDeferred;
         }
         private string PlacementStatus(BuildingPlacementValidity validity)
@@ -376,6 +411,7 @@ namespace ColonyGame.Presentation
                 case BuildingPlacementValidity.Valid: return $"VALID: {BuildingEconomyRules.Describe(BuildingEconomyRules.Cost(selectedBuilding.Type))}";
                 case BuildingPlacementValidity.InsufficientResources: return $"Need {BuildingEconomyRules.Describe(BuildingEconomyRules.Cost(selectedBuilding.Type))}";
                 case BuildingPlacementValidity.ConstructionDeferred: return "A free assigned Builder is required";
+                case BuildingPlacementValidity.AccessBlocked: return "INVALID: blocks reachable building access or Town Hall delivery";
                 case BuildingPlacementValidity.OutsideTerritory: return "INVALID: outside territory";
                 case BuildingPlacementValidity.Occupied: return "INVALID: occupied Tiles";
                 case BuildingPlacementValidity.Locked: return "INVALID: locked by Town Hall level";
@@ -383,25 +419,37 @@ namespace ColonyGame.Presentation
                 default: return "INVALID: building type or orientation";
             }
         }
-        private void OnGUI() { if (State != null) DrawBuildingLabels(); }
-        private void DrawBuildingLabels()
+        private sealed class OutputFeedback
         {
-            var camera = Camera.main;
-            if (camera == null) return;
-            var style = new GUIStyle(GUI.skin.box) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
-            foreach (var building in State.Buildings)
+            public Vector3 Position;
+            public string Text;
+            public float Expires;
+        }
+        private readonly List<OutputFeedback> feedback=new List<OutputFeedback>();
+        private void OnProduction(BuildingState building,ResourceType resource,int stored,int blocked)
+        {
+            if(feedback.Count>=12) feedback.RemoveAt(0);
+            feedback.Add(new OutputFeedback {Position=new Vector3(building.Origin.X+building.Width*.5f,1.8f,building.Origin.Z+building.Depth*.5f),
+                Text=stored>0?"+"+stored+" "+resource+(blocked>0?" (storage limited)":""):resource+" storage full",Expires=Time.unscaledTime+1.5f});
+        }
+        private void OnGUI()
+        {
+            feedback.RemoveAll(f=>f.Expires<=Time.unscaledTime);
+            var camera=Camera.main;if(camera==null||hud?.HelpOpen==true) return;
+            ambience?.DrawFireflies(camera);
+            var previous=GUI.color;
+            foreach(var item in feedback)
             {
-                var center = new Vector3(building.Origin.X + building.Width * 0.5f, 1.2f, building.Origin.Z + building.Depth * 0.5f);
-                var screen = camera.WorldToScreenPoint(transform.TransformPoint(center));
-                if (screen.z <= 0 || !camera.pixelRect.Contains(new Vector2(screen.x, screen.y))) continue;
-                var point = new Vector2(screen.x, Screen.height - screen.y);
-                var label = new Rect(point.x - 95, point.y - 12, 190, 24);
-                if (hud != null && hud.IsPointerOverUI(new Vector2(screen.x, screen.y))) continue;
-                GUI.Box(label, building.Definition.DisplayName+" L"+building.Level+(building.IsUpgrading?" (upgrading)":""), style);
+                var screen=camera.WorldToScreenPoint(transform.TransformPoint(item.Position));
+                if(screen.z<=0) continue;
+                GUI.color=new Color(1,1,.75f,Mathf.Clamp01(item.Expires-Time.unscaledTime));
+                GUI.Label(new Rect(screen.x-70,Screen.height-screen.y-12,160,28),item.Text);
             }
+            GUI.color=previous;
         }
         private void OnDestroy()
         {
+            if(economy!=null) {economy.PresentationChanged-=RefreshPresentation;economy.ProductionEvent-=OnProduction;}
             hud?.Dispose();
             wildlifeView?.Dispose();
             citizenView?.Dispose();

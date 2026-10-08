@@ -100,22 +100,26 @@ namespace ColonyGame.Presentation
             foreach(var citizen in simulation.Citizens)
             {
                 var model=models[citizen.Id];
+                model.localScale=Vector3.one*(citizen.IsAdult?1:.65f);
                 model.gameObject.SetActive(citizen.Active&&citizen.InsideBuildingId==null);
                                 if(!shownProfessions.TryGetValue(citizen.Id,out var shown)||shown!=citizen.Profession)
                 {
+                    professionLayers[citizen.Id].SetActive(false);
                     Object.Destroy(professionLayers[citizen.Id]);
                     var layer=new GameObject(citizen.Profession+" equipment");layer.transform.SetParent(model,false);
                     professionLayers[citizen.Id]=layer;shownProfessions[citizen.Id]=citizen.Profession;
+                    var ordinaryApron=model.Find("Builder work apron");
+                    if(ordinaryApron!=null) ordinaryApron.gameObject.SetActive(false);
                     if(citizen.Profession!=CitizenProfession.Unemployed)
                     {
                         Color color=citizen.Profession==CitizenProfession.Warrior?new Color(.48f,.5f,.55f):citizen.Profession==CitizenProfession.Fisher?new Color(.2f,.4f,.8f):
                             citizen.Profession==CitizenProfession.Mage?new Color(.48f,.25f,.7f):
                             citizen.Profession==CitizenProfession.Butcher||citizen.Profession==CitizenProfession.Scientist?new Color(.85f,.85f,.8f):
-                            new Color(.55f,.42f,.24f);
-                        PrototypePalette.Shape(layer.transform,"Work vest",PrimitiveType.Cube,new Vector3(0,.62f,.145f),new Vector3(.3f,citizen.Profession==CitizenProfession.Mage?.75f:.42f,.04f),palette.Get(color));
-                        if(citizen.Profession==CitizenProfession.Miner||citizen.Profession==CitizenProfession.Farmer||citizen.Profession==CitizenProfession.Fisher)
+                            citizen.Profession==CitizenProfession.Builder?new Color(.95f,.64f,.12f):citizen.Profession==CitizenProfession.Farmer?new Color(.3f,.65f,.24f):citizen.Profession==CitizenProfession.Miner?new Color(.4f,.45f,.5f):new Color(.65f,.28f,.18f);
+                        PrototypePalette.Shape(layer.transform,"Work vest",PrimitiveType.Cube,new Vector3(0,.66f,0),new Vector3(.34f,citizen.Profession==CitizenProfession.Mage?.75f:.45f,.25f),palette.Get(color));
+                        if(PrototypePresentationRules.HasHat(citizen.Profession))
                             PrototypePalette.Shape(layer.transform,"Profession hat",PrimitiveType.Cylinder,new Vector3(0,1.18f,0),new Vector3(.4f,.04f,.4f),palette.Get(color));
-                        if(citizen.Profession==CitizenProfession.Builder||citizen.Profession==CitizenProfession.Lumberjack||citizen.Profession==CitizenProfession.Warrior||citizen.Profession==CitizenProfession.Mage||citizen.Profession==CitizenProfession.Fisher)
+                        if(PrototypePresentationRules.HasTool(citizen.Profession))
                             PrototypePalette.Shape(layer.transform,"Work tool",PrimitiveType.Cube,new Vector3(.3f,.55f,.15f),new Vector3(.045f,.65f,.045f),palette.Get(new Color(.4f,.3f,.2f)));
                                                 if(citizen.Profession==CitizenProfession.Lumberjack||citizen.Profession==CitizenProfession.Builder)
                             PrototypePalette.Shape(layer.transform,"Tool head",PrimitiveType.Cube,new Vector3(.3f,.84f,.15f),new Vector3(.18f,.08f,.06f),palette.Get(new Color(.5f,.52f,.55f)));

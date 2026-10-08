@@ -11,10 +11,11 @@ namespace ColonyGame.Presentation
         private readonly SettlementEconomy economy;
         private readonly PrototypePalette palette;
         private readonly GameObject root;
-        private readonly Dictionary<string,GameObject> windows=new Dictionary<string,GameObject>();
+        private readonly Dictionary<string,GameObject[]> windows=new Dictionary<string,GameObject[]>();
         private readonly Dictionary<string,GameObject> dreams=new Dictionary<string,GameObject>();
         private readonly Dictionary<string,GameObject> dust=new Dictionary<string,GameObject>();
-        private readonly List<GameObject> fireflies=new List<GameObject>();
+        private readonly FireflySwarmSystem fireflies=new FireflySwarmSystem();
+        private readonly MaterialPropertyBlock candleProperties=new MaterialPropertyBlock();
         private readonly Light sun;
         private readonly Material[] ground;
         private readonly Color[] groundColors;
@@ -22,9 +23,9 @@ namespace ColonyGame.Presentation
         private float nightBlend;
                 private bool lastDay=true;
         private readonly System.Random random=new System.Random(1039);
-        private readonly double[] fireflyRefresh=new double[12];
-        private readonly Vector3[] fireflyPosition=new Vector3[12];
+
         private readonly GameObject playerDust;
+        private readonly List<GameObject> builderDust=new List<GameObject>();
         private readonly Mesh[] moonPhases=new Mesh[8];
         public SettlementAmbience(Transform parent,SettlementEconomy economy,PrototypePalette palette,Material[] ground)
         {
@@ -40,12 +41,12 @@ namespace ColonyGame.Presentation
             }
             playerDust=PrototypePalette.Shape(root.transform,"Player construction puff",PrimitiveType.Sphere,Vector3.zero,Vector3.one*.1f,palette.Get(new Color(.7f,.62f,.45f)));
             playerDust.SetActive(false);
-            for(int phase=0;phase<moonPhases.Length;phase++) moonPhases[phase]=CreateMoon((phase+.15f)/8f);
             for(int i=0;i<12;i++)
             {
-                var fly=PrototypePalette.Shape(root.transform,"Wilderness firefly",PrimitiveType.Sphere,Vector3.zero,Vector3.one*.045f,palette.Get(new Color(.9f,.78f,.35f)));
-                fly.SetActive(false);fireflies.Add(fly);
+                var puff=PrototypePalette.Shape(root.transform,"Builder work puff",PrimitiveType.Sphere,Vector3.zero,Vector3.one*.1f,palette.Get(new Color(.7f,.62f,.45f)));
+                puff.SetActive(false);builderDust.Add(puff);
             }
+            for(int phase=0;phase<moonPhases.Length;phase++) moonPhases[phase]=CreateMoon((phase+.15f)/8f);
         }
         private static Mesh CreateMoon(float phase)
         {
@@ -83,27 +84,57 @@ namespace ColonyGame.Presentation
             if(day!=lastDay)
             {
                 lastDay=day;
-                if(day) windows.Values.ToList().ForEach(v=>v.SetActive(false));
+                if(day) windows.Values.SelectMany(v=>v).ToList().ForEach(v=>v.SetActive(false));
+            }
+            var working=economy.Jobs.Where(j=>j.IsFunded&&j.Builder!=null&&j.Builder.Task==CitizenTask.Working).Take(builderDust.Count).ToArray();
+            for(int i=0;i<builderDust.Count;i++)
+            {
+                builderDust[i].SetActive(day&&i<working.Length&&Mathf.Sin(Time.time*4+i)>0);
+                if(i<working.Length) builderDust[i].transform.localPosition=new Vector3((float)working[i].Builder.Position.X,.25f,(float)working[i].Builder.Position.Z);
             }
             nightBlend=Mathf.MoveTowards(nightBlend,day?0:1,seconds*.3f);
                         palette.SetNightAmount(nightBlend);
             for(int i=0;i<ground.Length;i++) ground[i].SetColor("_BaseColor",groundColors[i]*Color.Lerp(Color.white,new Color(.48f,.55f,.72f,1),nightBlend));
             if(sun!=null) sun.intensity=Mathf.Lerp(originalIntensity,originalIntensity*.3f,nightBlend);
             foreach(var id in windows.Keys.Where(id=>!state.Buildings.Any(b=>b.Id==id)).ToArray())
-            {Object.Destroy(windows[id]);windows.Remove(id);}
+            {foreach(var window in windows[id]) Object.Destroy(window);windows.Remove(id);}
             foreach(var building in state.Buildings.Where(b=>BuildingEconomyRules.ResidenceCapacity(b)>0))
             {
-                if(!windows.TryGetValue(building.Id,out var window))
+                if(!windows.TryGetValue(building.Id,out var panes))
                 {
-                    var entrance=building.Entrance;
-                    var outward=new Vector3(entrance.Facing.X,0,entrance.Facing.Z);
-                    var position=new Vector3(entrance.FootprintTile.X+.5f,.85f,entrance.FootprintTile.Z+.5f)+outward*.51f;
-                    window=Glow("Occupied residential window",position,new Vector3(.35f,.25f,.025f),new Color(1f,.73f,.25f));
-                    window.transform.localRotation=Quaternion.Euler(0,building.OrientationDegrees,0);
-                    var light=window.AddComponent<Light>();light.type=LightType.Point;light.range=2;light.intensity=.5f;light.color=new Color(1f,.68f,.3f);light.shadows=LightShadows.None;
-                    windows.Add(building.Id,window);
+                    panes=new GameObject[8];
+                    float w=building.Definition.BaseWidth,d=building.Definition.BaseDepth;
+                    float depth=building.Type==BuildingType.TownHall?.52f:building.Type==BuildingType.House?.6f:.5f;
+                    float centerZ=building.Type==BuildingType.Tavern?.65f:.5f;
+                    float width=building.Type==BuildingType.TownHall?.56f:building.Type==BuildingType.House?.55f:.62f;
+                    var rotation=Quaternion.Euler(0,building.OrientationDegrees,0);
+                    var offset=building.OrientationDegrees==90?new Vector3(0,0,w):building.OrientationDegrees==180?new Vector3(w,0,d):building.OrientationDegrees==270?new Vector3(d,0,0):Vector3.zero;
+                    for(int i=0;i<panes.Length;i++)
+                    {
+                        int face=i/2;float side=i%2==0?-1:1;
+                        var local=face<2?new Vector3(.5f*w+side*.3f*width*w,.82f,centerZ*d+(face==0?-1:1)*(depth*d*.5f+.047f)):
+                            new Vector3(.5f*w+(face==2?-1:1)*(width*w*.5f+.047f),.82f,centerZ*d+side*.3f*depth*d);
+                        var position=new Vector3(building.Origin.X,0,building.Origin.Z)+offset+rotation*local;
+                        var pane=Glow("Occupied residential candle window "+i,position,new Vector3(.3f,.27f,.035f),new Color(1f,.73f,.25f));
+                        pane.transform.localRotation=rotation*Quaternion.Euler(0,face<2?0:90,0);
+                        var light=pane.AddComponent<Light>();light.type=LightType.Point;light.range=.85f;light.intensity=2.8f;
+                        light.color=new Color(1f,.46f,.08f);light.shadows=LightShadows.None;
+                        panes[i]=pane;
+                    }
+                    windows.Add(building.Id,panes);
                 }
-                window.SetActive(!day&&economy.Bootstrap.Roster.Any(c=>c.InsideBuildingId==building.Id));
+                int occupants=economy.Bootstrap.Roster.Count(c=>c.ResidenceBuildingId==building.Id&&c.Active);
+                for(int i=0;i<panes.Length;i++)
+                {
+                    var pane=panes[i];pane.SetActive(PrototypePresentationRules.WindowLit(day,occupants));
+                    double phase=building.Id.Aggregate(0,(value,c)=>unchecked(value*31+c))*.001+i*2.399;
+                    float candle=(float)PrototypePresentationRules.WindowFlicker(Time.time,phase);
+                    var warm=new Color(1f,.49f,.075f);
+                    candleProperties.SetColor("_BaseColor",warm*candle);
+                    candleProperties.SetColor("_EmissionColor",new Color(1f,.31f,.018f)*(3f*candle));
+                    pane.GetComponent<Renderer>().SetPropertyBlock(candleProperties);
+                    pane.GetComponent<Light>().intensity=2.8f*candle;
+                }
             }
             foreach(var id in dreams.Keys.Where(id=>!economy.Bootstrap.Roster.Any(c=>c.Id==id)).ToArray())
             {Object.Destroy(dreams[id]);dreams.Remove(id);}
@@ -139,26 +170,51 @@ namespace ColonyGame.Presentation
                 puff.transform.localPosition=new Vector3((float)citizen.Position.X+.22f,.35f+.06f*Mathf.Sin(Time.time*4),(float)citizen.Position.Z);
             }
 
-            for(int i=0;i<fireflies.Count;i++)
+            var camera=Camera.main;
+            var territory=state.Territory;
+            int forestDepth=economy.Bootstrap.Settings.WildernessDepth;
+            int minX=territory.ClaimedTiles.Min(t=>t.X)-forestDepth-1,maxX=territory.ClaimedTiles.Max(t=>t.X)+forestDepth+2;
+            int minZ=territory.ClaimedTiles.Min(t=>t.Z)-forestDepth-1,maxZ=territory.ClaimedTiles.Max(t=>t.Z)+forestDepth+2;
+            bool Valid(CitizenPosition point)
             {
-                if(Time.time>=fireflyRefresh[i])
-                {
-                    fireflyRefresh[i]=Time.time+2+random.NextDouble()*6;
-                    int minX=state.Territory.ClaimedTiles.Min(t=>t.X)-4,maxX=state.Territory.ClaimedTiles.Max(t=>t.X)+5;
-                    int minZ=state.Territory.ClaimedTiles.Min(t=>t.Z)-4,maxZ=state.Territory.ClaimedTiles.Max(t=>t.Z)+5;
-                    for(int attempt=0;attempt<20;attempt++)
-                    {
-                        int x=random.Next(minX,maxX),z=random.Next(minZ,maxZ);
-                        if(!state.Territory.IsClaimed(new TileCoordinate(x,z))) {fireflyPosition[i]=new Vector3(x+.5f,.6f,z+.5f);break;}
-                    }
-                }
-                var position=fireflyPosition[i];
-                bool outside=!state.Territory.IsClaimed(new TileCoordinate(Mathf.FloorToInt(position.x),Mathf.FloorToInt(position.z)));
-                float glimmer=Mathf.Max(0,Mathf.Sin(Time.time*(.65f+i*.031f)+i*2.3f));
-                fireflies[i].SetActive(!day&&outside&&glimmer>.3f);
-                fireflies[i].transform.localScale=Vector3.one*(.02f+.025f*glimmer);
-                fireflies[i].transform.localPosition=position+new Vector3(.1f*Mathf.Sin(Time.time+i),.06f*Mathf.Sin(Time.time*1.3f+i),0);
+                if(camera==null) return false;
+                int x=(int)System.Math.Floor(point.X),z=(int)System.Math.Floor(point.Z);
+                if(x<minX||x>=maxX||z<minZ||z>=maxZ||territory.IsClaimed(new TileCoordinate(x,z))||!PrototypePresentationRules.ForestCell(x,z)) return false;
+                var screen=camera.WorldToViewportPoint(root.transform.TransformPoint(new Vector3((float)point.X,.35f,(float)point.Z)));
+                return screen.z>0&&screen.x>.02f&&screen.x<.98f&&screen.y>.02f&&screen.y<.98f;
             }
+            CitizenPosition? Candidate()
+            {
+                if(camera==null) return null;
+                var ray=camera.ViewportPointToRay(new Vector3((float)random.NextDouble(),(float)random.NextDouble(),0));
+                var plane=new Plane(root.transform.up,root.transform.TransformPoint(new Vector3(0,.35f,0)));
+                if(!plane.Raycast(ray,out var distance)) return null;
+                var local=root.transform.InverseTransformPoint(ray.GetPoint(distance));
+                return new CitizenPosition(local.x,local.z);
+            }
+            fireflies.Tick(seconds,day,Candidate,Valid);
+        }
+        // Unlit, alpha-blended screen patches anchored in world space. This avoids a tiny
+        // Lit sphere being darkened/occluded by the canopy and shrunk below a screen pixel.
+        public void DrawFireflies(Camera camera)
+        {
+            if(camera==null||economy.Clock.IsDay) return;
+            var previous=GUI.color;
+            foreach(var swarm in fireflies.Swarms)
+            {
+                if(!swarm.Active) continue;
+                for(int i=0;i<swarm.Points.Length;i++)
+                {
+                    if(swarm.Alpha[i]<=.001) continue;
+                    var point=swarm.Points[i];
+                    var screen=camera.WorldToScreenPoint(root.transform.TransformPoint(new Vector3((float)point.X,.35f,(float)point.Z)));
+                    if(screen.z<=0||!camera.pixelRect.Contains(new Vector2(screen.x,screen.y))) continue;
+                    GUI.color=new Color(1f,.85f,.3f,(float)swarm.Alpha[i]);
+                    float size=fireflies.Settings.PixelSize;
+                    GUI.DrawTexture(new Rect(Mathf.Round(screen.x-size*.5f),Mathf.Round(Screen.height-screen.y-size*.5f),size,size),Texture2D.whiteTexture);
+                }
+            }
+            GUI.color=previous;
         }
         public void Dispose()
         {

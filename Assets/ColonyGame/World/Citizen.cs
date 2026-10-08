@@ -44,10 +44,21 @@ namespace ColonyGame.World
         public string Id { get; }
         public string FirstName { get; }
         public CitizenSex Sex { get; }
-        public int Age { get; }
+        public int Age { get; internal set; }
+        internal int InitialAge,ChildhoodElapsedDays,LastBirthDay;
+        internal readonly HashSet<string> Ancestors=new HashSet<string>();
+        public bool IsAdult=>Age>=18;
+        public string PartnerId {get;internal set;}
+        public string ParentOneId {get;internal set;}
+        public string ParentTwoId {get;internal set;}
+        public double Satiety {get;internal set;}=1;
+        public int HungryDays {get;internal set;}
+        public double Health {get;internal set;}=100;
+        public bool CanWork=>Active&&IsAdult&&Health>25;
         public CitizenProfession Profession { get; internal set; } = CitizenProfession.Unemployed;
         public string WorkplaceBuildingId { get; internal set; }
         public string ResidenceBuildingId { get; internal set; }
+        public string PreferredResidenceId { get; internal set; }
         internal CitizenTask ScheduledTask = CitizenTask.Idle;
         internal CitizenTask GatheringTask = CitizenTask.Idle;
         public CitizenTask Task => Movement == CitizenMovement.Recovering ? CitizenTask.Recovery :
@@ -71,7 +82,7 @@ namespace ColonyGame.World
             if (string.IsNullOrWhiteSpace(firstName)) throw new ArgumentException("First name is required.", nameof(firstName));
             if (!Enum.IsDefined(typeof(CitizenSex),sex)) throw new ArgumentOutOfRangeException(nameof(sex));
             if (age < 0) throw new ArgumentOutOfRangeException(nameof(age));
-            Id=id; FirstName=firstName; Sex=sex; Age=age;
+            Id=id; FirstName=firstName; Sex=sex; Age=InitialAge=age;
             Attributes=attributes ?? throw new ArgumentNullException(nameof(attributes));
             Position=Destination=position;
         }

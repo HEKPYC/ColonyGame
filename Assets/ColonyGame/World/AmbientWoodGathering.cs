@@ -57,9 +57,9 @@ namespace ColonyGame.World
                 for(int x=(int)Math.Floor(p.X-r);x<=(int)Math.Floor(p.X+r);x++)
                 {
                     var t=new TileCoordinate(x,z);
-                    if(settlement.IsOccupied(t)||(!settlement.Territory.IsClaimed(t)&&!depths.ContainsKey(t))) return false;
+                    if(!settlement.Territory.IsClaimed(t)&&!depths.ContainsKey(t)) return false;
                 }
-            return true;
+            return PerimeterNavigation.ClearOfStructures(p,settlement.Buildings);
         }
     }
 
@@ -71,7 +71,7 @@ namespace ColonyGame.World
             public int PendingWood;
             public string DeliveryId;
             public bool Rolled;
-            public TileCoordinate ReturnAccess;
+            public CitizenPosition ReturnAccess;
         }
         private readonly SettlementBootstrap bootstrap;
         private readonly CitizenSimulation simulation;
@@ -81,6 +81,9 @@ namespace ColonyGame.World
         public bool AllowNewTrips { get; set; } = true;
         public void RemoveCitizen(Citizen citizen) { trips.Remove(citizen.Id); }
         private Trip Record(Citizen c) { if(!trips.TryGetValue(c.Id,out var t)) trips.Add(c.Id,t=new Trip {Cooldown=bootstrap.Settings.InitialGatherDelay}); return t; }
+        public bool CanGather(Citizen c)=>c!=null&&c.CanWork&&c.InsideBuildingId==null&&
+            (c.Profession==CitizenProfession.Unemployed||bootstrap.Economy!=null&&!bootstrap.Economy.Jobs.Any(j=>j.Builder==c)&&
+                bootstrap.Economy.Clock.IsDay&&bootstrap.Economy.Clock.Elapsed%SettlementClock.CycleSeconds>=300);
         public int SuccessRolls { get; private set; }
         public AmbientWoodGathering(SettlementBootstrap bootstrap,IGatheringRandom random=null)
         {
@@ -94,34 +97,25 @@ namespace ColonyGame.World
         public int PendingWood(Citizen c)=>Record(c).PendingWood;
         public bool HasTrip(Citizen c)=>c.GatheringTask!=CitizenTask.Idle;
         private bool Walkable(TileCoordinate t)=>Area.CanOccupy(CitizenPosition.Center(t));
-        private void SetRoute(Citizen c,IReadOnlyList<TileCoordinate> route,CitizenTask task)
+        private void SetRoute(Citizen c,IReadOnlyList<CitizenPosition> route,CitizenTask task)
         {
             c.Route.Clear(); c.RecoveryTiles.Clear();
-            foreach(var tile in route)
+            foreach(var p in route)
             {
-                var p=CitizenPosition.Center(tile);
                 if(p.DistanceSquared(c.Position)>1e-12) c.Route.Enqueue(p);
             }
-            c.Destination=CitizenPosition.Center(route[route.Count-1]);
+            c.Destination=route[route.Count-1];
             c.Movement=c.Route.Count>0?CitizenMovement.Walking:CitizenMovement.Idle;
             c.GatheringTask=task;
         }
-        private IReadOnlyList<TileCoordinate> HallRoute(Citizen c)
+        private IReadOnlyList<CitizenPosition> HallRoute(Citizen c)
         {
-            var hall=bootstrap.Settlement.TownHall;
-            // Prefer the oriented entrance. Other adjacent exterior cells are an outdoor
-            // delivery area fallback if another reserved footprint blocks that access.
-            var exterior=hall.OccupiedTiles.SelectMany(CitizenNavigation.Neighbors)
-                .Where(t=>!bootstrap.Settlement.IsOccupied(t)&&bootstrap.Settlement.Territory.IsClaimed(t)).Distinct()
-                .OrderBy(t=>t.Equals(hall.Entrance.ExteriorTile)?0:1)
-                .ThenBy(t=>Math.Abs(t.X-hall.Entrance.ExteriorTile.X)+Math.Abs(t.Z-hall.Entrance.ExteriorTile.Z))
-                .ThenBy(t=>t.Z).ThenBy(t=>t.X);
-            foreach(var access in exterior)
+            foreach(var access in PerimeterNavigation.AccessPoints(bootstrap.Settlement.TownHall).Distinct())
             {
-                var route=CitizenNavigation.FindPath(c.Position.Tile,access,Walkable);
+                var route=PerimeterNavigation.FindPath(c.Position,access,Area.CanOccupy);
                 if(route.Count>0) return route;
             }
-            return Array.Empty<TileCoordinate>();
+            return Array.Empty<CitizenPosition>();
         }
         private bool ReturnToHall(Citizen c)
         {
@@ -150,15 +144,15 @@ namespace ColonyGame.World
         }
         public bool TryBegin(Citizen c)
         {
-            if(!AllowNewTrips||!simulation.Citizens.Contains(c)||!IsEligible(c)||HasTrip(c)||c.Movement==CitizenMovement.Recovering) return false;
+            if(!AllowNewTrips||!simulation.Citizens.Contains(c)||!CanGather(c)||HasTrip(c)||c.Movement==CitizenMovement.Recovering) return false;
             // Require a real return route before dispatching any task.
             if(HallRoute(c).Count==0) return false;
-            var reachable=CitizenNavigation.ReachableTiles(c.Position.Tile,Walkable);
+            var reachable=PerimeterNavigation.Reachable(c.Position,Area.CanOccupy).Where(n=>n.X%2!=0&&n.Z%2!=0).Select(n=>new TileCoordinate((n.X-1)/2,(n.Z-1)/2));
             var candidates=reachable.Where(t=>Area.Depth(t)>0&&Area.Depth(t)<=Math.Min(bootstrap.Settings.PreferredGatherDepth,bootstrap.Settings.WildernessDepth))
                 .OrderBy(t=>CitizenPosition.Center(t).DistanceSquared(c.Position)).ThenBy(t=>t.Z).ThenBy(t=>t.X).Take(bootstrap.Settings.DestinationCandidates).ToArray();
             if(candidates.Length==0) return false;
             var target=candidates[random.Next(candidates.Length)];
-            var route=CitizenNavigation.FindPath(c.Position.Tile,target,Walkable);
+            var route=PerimeterNavigation.FindPath(c.Position,CitizenPosition.Center(target),Area.CanOccupy);
             if(route.Count==0) return false;
             var trip=Record(c); trip.PendingWood=0; trip.Rolled=false; trip.DeliveryId=Guid.NewGuid().ToString("N");
             SetRoute(c,route,CitizenTask.GatheringWoodOutbound);
@@ -183,9 +177,9 @@ namespace ColonyGame.World
             if(!HasTrip(c))
             {
                 trip.Cooldown-=seconds;
-                if(!AllowNewTrips||trip.Cooldown>0||!IsEligible(c)||simulation.Citizens.Count(HasTrip)>=bootstrap.Settings.MaximumGatherers||!TryBegin(c)) return false;
+                if(!AllowNewTrips||trip.Cooldown>0||!CanGather(c)||simulation.Citizens.Count(HasTrip)>=bootstrap.Settings.MaximumGatherers||!TryBegin(c)) return false;
             }
-            if(!IsEligible(c)&&c.GatheringTask!=CitizenTask.ReturningWood)
+            if(!CanGather(c)&&c.GatheringTask!=CitizenTask.ReturningWood)
             {
                 if(!ReturnToHall(c)) { c.GatheringTask=CitizenTask.Recovery; return true; }
             }
@@ -219,10 +213,10 @@ namespace ColonyGame.World
             }
             else if(c.GatheringTask==CitizenTask.ReturningWood)
             {
-                if(c.Position.DistanceSquared(CitizenPosition.Center(trip.ReturnAccess))<1e-10)
+                if(c.Position.DistanceSquared(trip.ReturnAccess)<1e-10)
                 {
-                    if(bootstrap.Resources.TryTransaction("ambient-delivery-"+trip.DeliveryId,ResourceType.Wood,trip.PendingWood))
-                        End(c,trip);
+                    bootstrap.Resources.Store("ambient-delivery-"+trip.DeliveryId,ResourceType.Wood,trip.PendingWood);
+                    End(c,trip);
                 }
             }
             return true;

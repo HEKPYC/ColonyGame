@@ -45,7 +45,7 @@ namespace ColonyGame.Presentation
     public static class SchematicBuildingView
     {
         private static readonly Color Wood = new Color(.52f,.32f,.16f), Stone = new Color(.4f,.47f,.52f), Cream = new Color(.82f,.77f,.58f), Blue = new Color(.18f,.55f,.78f), Green = new Color(.32f,.55f,.15f), Purple = new Color(.59f,.3f,.8f);
-        private static void CreateEntrancePerimeter(BuildingState building,Transform site,PrototypePalette palette)
+        private static void CreateEntranceThreshold(BuildingState building,Transform site,PrototypePalette palette)
         {
             float w=building.Definition.BaseWidth,d=building.Definition.BaseDepth;
             var entrance=building.Entrance;
@@ -55,33 +55,13 @@ namespace ColonyGame.Presentation
             var inverse=Quaternion.Inverse(site.localRotation);
             var gate=inverse*(boundary-site.localPosition);
             var normal=inverse*facing;
-            void Edge(string name,bool vertical,float fixedPosition,float start,float end,bool opening,float gateAlong)
-            {
-                void Segment(float from,float to)
-                {
-                    if(to-from<.001f) return;
-                    var position=vertical?new Vector3(fixedPosition,.06f,(from+to)*.5f):new Vector3((from+to)*.5f,.06f,fixedPosition);
-                    var scale=vertical?new Vector3(.02f*w,.12f,to-from):new Vector3(to-from,.12f,.02f*d);
-                    PrototypePalette.Shape(site,name,PrimitiveType.Cube,position,scale,palette.Get(Cream));
-                }
-                if(opening) { Segment(start,gateAlong-.4f);Segment(gateAlong+.4f,end); }
-                else Segment(start,end);
-            }
-            Edge("West site edge",true,.01f*w,.01f*d,.99f*d,normal.x<-.5f,gate.z);
-            Edge("East site edge",true,.99f*w,.01f*d,.99f*d,normal.x>.5f,gate.z);
-            Edge("South site edge",false,.01f*d,.01f*w,.99f*w,normal.z<-.5f,gate.x);
-            Edge("North site edge",false,.99f*d,.01f*w,.99f*w,normal.z>.5f,gate.x);
-            var tangent=new Vector3(-normal.z,0,normal.x);
             var inset=gate-normal*.07f;
-            foreach(float side in new[]{-.41f,.41f})
-                PrototypePalette.Shape(site,"Entrance gate post",PrimitiveType.Cube,inset+tangent*side+Vector3.up*.22f,
-                    new Vector3(.07f,.44f,.07f),palette.Get(Cream));
             var thresholdScale=Mathf.Abs(normal.z)>.5f?new Vector3(.72f,.04f,.12f):new Vector3(.12f,.04f,.72f);
             PrototypePalette.Shape(site,"Entrance threshold",PrimitiveType.Cube,inset+Vector3.up*.025f,thresholdScale,palette.Get(Blue));
         }
         public static void Create(BuildingState building, Transform parent, PrototypePalette palette)
         {
-            var site = new GameObject(building.Definition.DisplayName + " Site");
+            var site = new GameObject(building.Id);
             site.transform.SetParent(parent, false);
             float w = building.Definition.BaseWidth, d = building.Definition.BaseDepth;
             var offset = building.OrientationDegrees == 90 ? new Vector3(0,0,w) : building.OrientationDegrees == 180 ? new Vector3(w,0,d) : building.OrientationDegrees == 270 ? new Vector3(d,0,0) : Vector3.zero;
@@ -90,20 +70,30 @@ namespace ColonyGame.Presentation
             // All canonical site geometry is inset within [0,w] x [0,d]; transform rotates the entire site.
             Action<string,float,float,float,float,float,Color> box = (name,x,z,sx,sz,height,color) =>
                 PrototypePalette.Shape(site.transform,name,PrimitiveType.Cube,new Vector3(x*w,height*.5f,z*d),new Vector3(sx*w,height,sz*d),palette.Get(color));
-            CreateEntrancePerimeter(building,site.transform,palette);
+            CreateEntranceThreshold(building,site.transform,palette);
             Action<float,float,float,float,Color> hut = (x,z,sx,sz,color) =>
             {
-                box("Walls",x,z,sx,sz,.6f,color);
-                var roof = PrototypePalette.Shape(site.transform,"Roof",PrimitiveType.Cube,new Vector3(x*w,.67f,z*d),new Vector3(sx*w,.14f,sz*d),palette.Get(Wood));
+                box("Walls",x,z,sx,sz,1.15f,color);
+                var roof = PrototypePalette.Shape(site.transform,"Roof",PrimitiveType.Cube,new Vector3(x*w,1.28f,z*d),new Vector3(sx*w,.22f,sz*d),palette.Get(Wood));
+                float front=z*d-sz*d*.5f;
+                PrototypePalette.Shape(site.transform,"Door",PrimitiveType.Cube,new Vector3(x*w,.38f,front-.012f),new Vector3(.32f,.76f,.035f),palette.Get(Wood));
+                foreach(float side in new[]{-1f,1f})
+                    PrototypePalette.Shape(site.transform,"Dark window",PrimitiveType.Cube,new Vector3(x*w+side*sx*w*.3f,.82f,front-.02f),new Vector3(.3f,.27f,.035f),palette.Get(new Color(.08f,.12f,.17f)));
+                if(building.Type==BuildingType.TownHall||building.Type==BuildingType.House||building.Type==BuildingType.Tavern)
+                    foreach(float side in new[]{-1f,1f})
+                    {
+                        PrototypePalette.Shape(site.transform,"Dark window",PrimitiveType.Cube,new Vector3(x*w+side*sx*w*.3f,.82f,z*d+sz*d*.5f+.02f),new Vector3(.3f,.27f,.035f),palette.Get(new Color(.08f,.12f,.17f)));
+                        foreach(float face in new[]{-1f,1f})
+                            PrototypePalette.Shape(site.transform,"Dark window",PrimitiveType.Cube,new Vector3(x*w+face*(sx*w*.5f+.02f),.82f,z*d+side*sz*d*.3f),new Vector3(.035f,.27f,.3f),palette.Get(new Color(.08f,.12f,.17f)));
+                    }
+                // Windows on all residential faces remain visible after quarter-turn rotation.
                 // The roof remains within the same normalized building volume.
             };
-            if(!building.IsCompleted)
+            if(!building.IsCompleted||building.IsUpgrading)
             {
                 box("Construction foundation",.5f,.5f,.82f,.82f,.045f,Stone);
                 foreach(float x in new[]{.2f,.8f})
-                    foreach(float z in new[]{.2f,.8f}) box("Unfinished frame post",x,z,.045f,.045f,.75f,Wood);
-                box("Unfinished frame beam",.5f,.8f,.64f,.05f,.8f,new Color(.72f,.51f,.22f));
-                return;
+                    foreach(float z in new[]{.2f,.8f}) box("Scaffolding",x,z,.035f,.035f,1.5f,Wood);
             }
             for(int tier=1;tier<building.Level;tier++)
             {
@@ -144,6 +134,32 @@ namespace ColonyGame.Presentation
                 case BuildingType.MageTower:
                     box("Mage tower",.3f,.55f,.26f,.3f,1.7f,Purple); box("Shared Place of Power",.73f,.5f,.3f,.45f,.07f,Blue);
                     PrototypePalette.Shape(site.transform,"Power crystal",PrimitiveType.Sphere,new Vector3(.73f*w,.38f,.5f*d),new Vector3(.3f,.65f,.3f),palette.Get(Purple)); break;
+            }
+            if(building.IsUpgrading)
+                PrototypePalette.Shape(site.transform,"Upgrade work",PrimitiveType.Cube,new Vector3(.5f*w,1.48f,.5f*d),new Vector3(.4f*w,.07f,.35f*d),palette.Get(Cream));
+            UpdateConstruction(building,site.transform);
+        }
+        public static void UpdateConstruction(BuildingState building,Transform site)
+        {
+            float progress=(float)building.ConstructionProgress;
+            foreach(Transform part in site)
+            {
+                bool scaffolding=part.name=="Scaffolding"||part.name=="Construction foundation";
+                if(scaffolding) {part.gameObject.SetActive(!building.IsCompleted||building.IsUpgrading);continue;}
+                if(part.name=="Upgrade work") {part.gameObject.SetActive(building.IsUpgrading&&progress>.15f);part.localScale=new Vector3(building.Definition.BaseWidth*.4f*progress,.07f,building.Definition.BaseDepth*.35f);continue;}
+                if(building.IsCompleted) {part.gameObject.SetActive(true);continue;}
+                bool edge=part.name.StartsWith("Entrance");
+                bool roof=part.name=="Roof"||part.name.Contains("battlement");
+                bool walls=part.name=="Walls"||part.name=="Door"||part.name.Contains("window");
+                part.gameObject.SetActive(edge||PrototypePresentationRules.ShowConstructionPart(progress,roof,walls));
+                if(part.name=="Walls")
+                {
+                    float height=1.15f*Mathf.Clamp01((progress-.35f)/.5f);
+                    var scale=part.localScale;scale.y=height;part.localScale=scale;
+                    var position=part.localPosition;position.y=height*.5f;part.localPosition=position;
+                }
+                if(part.name=="Roof") {var scale=part.localScale;scale.y=.22f*Mathf.Clamp01((progress-.85f)/.15f);part.localScale=scale;}
+                // Completed geometry retains original scale; staged visibility never alters logical footprints.
             }
         }
     }

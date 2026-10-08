@@ -58,7 +58,7 @@ namespace ColonyGame.World
                 case BuildingType.Farm: case BuildingType.GuardTower: return 360;
                 case BuildingType.FishermansHut: return 420;
                 case BuildingType.Tavern: case BuildingType.Butcher:return 480;
-                case BuildingType.Warehouse: case BuildingType.Barracks:return 600;
+                case BuildingType.TownHall: case BuildingType.Warehouse: case BuildingType.Barracks:return 600;
                 case BuildingType.LumberMill: case BuildingType.Mine:return 720;
                 case BuildingType.Laboratory:return 900;
                 case BuildingType.MageTower:return 1080;
@@ -98,9 +98,9 @@ namespace ColonyGame.World
         public static IReadOnlyList<ProductionDefinition> Production {get;}=Array.AsReadOnly(new[]{
             new ProductionDefinition(BuildingType.Farm,ResourceType.Beetroot,1,15),new ProductionDefinition(BuildingType.Farm,ResourceType.Wheat,2,30),
             new ProductionDefinition(BuildingType.Farm,ResourceType.Potato,3,45),new ProductionDefinition(BuildingType.Farm,ResourceType.Carrot,4,60),
-            new ProductionDefinition(BuildingType.Butcher,ResourceType.Meat,1,30),new ProductionDefinition(BuildingType.Butcher,ResourceType.Wool,2,45),
-            new ProductionDefinition(BuildingType.FishermansHut,ResourceType.Fish,1,30),new ProductionDefinition(BuildingType.LumberMill,ResourceType.Wood,1,30),
-            new ProductionDefinition(BuildingType.Mine,ResourceType.Stone,1,45),new ProductionDefinition(BuildingType.Mine,ResourceType.Iron,4,60)});
+            new ProductionDefinition(BuildingType.Butcher,ResourceType.Meat,1,30),new ProductionDefinition(BuildingType.Butcher,ResourceType.Wool,2,10),
+            new ProductionDefinition(BuildingType.FishermansHut,ResourceType.Fish,1,30),new ProductionDefinition(BuildingType.LumberMill,ResourceType.Wood,1,10),
+            new ProductionDefinition(BuildingType.Mine,ResourceType.Stone,1,20),new ProductionDefinition(BuildingType.Mine,ResourceType.Iron,4,40)});
         public static bool Obtainable(SettlementState state,ResourceType resource)=>resource==ResourceType.Wood||Production.Any(p=>p.Resource==resource&&
             state.Buildings.Any(b=>b.IsCompleted&&b.Type==p.Building&&b.Level>=p.UnlockLevel));
         public static bool TavernEligible(SettlementState state,ResourceType resource,int tavernLevel)=>Obtainable(state,resource)&&

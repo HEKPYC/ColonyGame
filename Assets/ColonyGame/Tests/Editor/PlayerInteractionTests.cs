@@ -8,7 +8,7 @@ namespace ColonyGame.World.Tests
         private static SettlementBootstrap Bootstrap()
         {
             var state=SettlementState.CreatePrototype(4);
-            return new SettlementBootstrap(state,CitizenSimulation.CreatePrototype(state),new BootstrapSettings(playerWorkSeconds:30));
+            return new SettlementBootstrap(state,CitizenSimulation.CreatePrototype(state,seed:1147),new BootstrapSettings(startingWood:10,playerWorkSeconds:30));
         }
         private static BuildingState Site(SettlementBootstrap b)
         {
@@ -39,7 +39,7 @@ namespace ColonyGame.World.Tests
             Assert.AreEqual(15,site.ConstructionWork); Assert.AreEqual(400,b.Settlement.Territory.Count);
             interaction.Act(false,false,20); Assert.AreEqual(15,site.ConstructionWork);
         }
-        [Test] public void CompletionChangesContextOnceWithoutAutomaticManagementOrAssignment()
+        [Test] public void CompletionChangesContextOnceAndEmploysFirstAdultWithoutOpeningManagement()
         {
             var b=Bootstrap(); var site=Site(b); var interaction=new PlayerInteraction(b); interaction.SelectBuilding(site);
             var result=interaction.Act(true,true,30);
@@ -47,13 +47,14 @@ namespace ColonyGame.World.Tests
             Assert.AreEqual(PlayerInteractionType.WorkplaceManagement,interaction.AvailableInteraction);
             Assert.AreEqual(PlayerInteractionType.None,interaction.Act(false,true,30).Type);
             Assert.AreEqual(PlayerInteractionType.WorkplaceManagement,interaction.Act(true,false,0).Type);
-            Assert.AreEqual(0,b.EmployedCount); Assert.IsNull(b.WorkerAt(site)); Assert.AreEqual(427,b.Settlement.Territory.Count);
+            Assert.AreEqual(1,b.EmployedCount); Assert.AreSame(b.Roster[0],b.WorkerAt(site)); Assert.AreEqual(427,b.Settlement.Territory.Count);
         }
-        [Test] public void CompletedHutInteractionStillRequiresExplicitCitizenChoiceForAssignment()
+        [Test] public void CompletedHutInteractionPreservesAutomaticWorkerAndManualReplacement()
         {
             var b=Bootstrap(); var site=Site(b); b.ContributeWork(site,ConstructionActor.Player,30);
             var interaction=new PlayerInteraction(b); interaction.SelectBuilding(site);
-            interaction.Act(true,true,10); Assert.AreEqual(0,b.EmployedCount);
+            interaction.Act(true,true,10); Assert.AreEqual(1,b.EmployedCount);Assert.AreSame(b.Roster[0],b.WorkerAt(site));
+            Assert.IsTrue(b.UnassignWorker(site));interaction.Act(true,true,10);Assert.AreEqual(0,b.EmployedCount);
             var chosen=b.Roster[2]; Assert.IsTrue(b.TryAssignBuilder(site,chosen.Id)); Assert.AreSame(chosen,b.WorkerAt(site));
             interaction.Act(true,true,10); Assert.AreEqual(1,b.EmployedCount); Assert.AreSame(chosen,b.WorkerAt(site));
         }

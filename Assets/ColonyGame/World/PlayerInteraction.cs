@@ -39,8 +39,8 @@ namespace ColonyGame.World
                 var b=BuildingTarget;
                 if(b==null||!bootstrap.Settlement.Buildings.Contains(b)) return PlayerInteractionType.None;
                 if(b.Type==BuildingType.TownHall&&b.IsCompleted) return PlayerInteractionType.TownHallManagement;
-                if(b.Type!=BuildingType.BuildersHut&&!b.IsCompleted) return PlayerInteractionType.None;
-                if(b.IsCompleted) return PlayerInteractionType.WorkplaceManagement;
+                if(b.Type!=BuildingType.BuildersHut&&!b.IsCompleted) return PlayerInteractionType.WorkplaceManagement;
+                if(b.IsCompleted||bootstrap.Economy?.JobAt(b)?.Builder!=null) return PlayerInteractionType.WorkplaceManagement;
                 return b.ConstructionStage==ConstructionStage.UnderConstruction&&
                     !b.IsUpgrading
                     ?PlayerInteractionType.ManualConstruction:PlayerInteractionType.None;

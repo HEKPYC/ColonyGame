@@ -10,6 +10,14 @@ namespace ColonyGame.World.Tests
         private static Citizen Adult(string id,CitizenPosition position) =>
             new Citizen(id,"Robin",CitizenSex.Male,25,new CitizenAttributes(5,5,5,5,5),position);
 
+        [Test] public void InitialNamesAreUniqueSeededAndGenerationDoesNotReplaceExistingRoster()
+        {
+            var state=SettlementState.CreatePrototype();var a=CitizenSimulation.CreatePrototype(state,seed:17);var b=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(),seed:17);
+            CollectionAssert.AreEqual(a.Citizens.Select(c=>c.FirstName),b.Citizens.Select(c=>c.FirstName));Assert.AreEqual(4,a.Citizens.Select(c=>c.FirstName).Distinct().Count());
+            Assert.AreSame(a,CitizenSimulation.CreatePrototype(state,seed:99));a.Tick(1);Assert.AreSame(a.Citizens[0],CitizenSimulation.CreatePrototype(state).Citizens[0]);
+            var different=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(),seed:18);Assert.AreNotEqual(string.Join(",",a.Citizens.Select(c=>c.FirstName+c.Age)),string.Join(",",different.Citizens.Select(c=>c.FirstName+c.Age)));
+            var custom=CitizenSimulation.CreatePrototype(SettlementState.CreatePrototype(),seed:1,maleNames:new[]{"John","Jack"},femaleNames:new[]{"Jane","Jill"});CollectionAssert.AreEquivalent(new[]{"John","Jack","Jane","Jill"},custom.Citizens.Select(c=>c.FirstName));
+        }
         [Test]
         public void StartingPopulationHasFourUniqueUnemployedAdultsWithTwoOfEachSex()
         {
@@ -49,7 +57,7 @@ namespace ColonyGame.World.Tests
         {
             var state=SettlementState.CreatePrototype(4);
             var policy=new SettlementIdleMovementPolicy(state);
-            var citizens=CitizenSimulation.CreatePrototype(state).Citizens;
+            var citizens=CitizenSimulation.CreatePrototype(state,seed:1147).Citizens;
             Assert.That(citizens.Select(c=>c.Position.Tile).Distinct().Count(),Is.EqualTo(4));
             Assert.That(citizens.All(c=>state.Territory.IsClaimed(c.Position.Tile)&&!state.IsOccupied(c.Position.Tile)&&policy.CanOccupy(c.Position)),Is.True);
             Assert.That(state.Territory.Count,Is.EqualTo(400));Assert.That(state.Buildings.Count,Is.EqualTo(1));
@@ -59,7 +67,7 @@ namespace ColonyGame.World.Tests
         {
             var state=SettlementState.CreatePrototype(4);
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(4,4),0,out _),Is.True);
-            Assert.That(CitizenSimulation.CreatePrototype(state).Citizens.All(c=>!state.IsOccupied(c.Position.Tile)),Is.True);
+            Assert.That(CitizenSimulation.CreatePrototype(state,seed:1147).Citizens.All(c=>!state.IsOccupied(c.Position.Tile)),Is.True);
         }
         [Test]
         public void NavigationRoutesAroundTownHallInsteadOfCrossingIt()
@@ -83,11 +91,11 @@ namespace ColonyGame.World.Tests
             Assert.That(CitizenNavigation.FindPath(tiles[0],new TileCoordinate(1,1),t=>policy.CanOccupy(CitizenPosition.Center(t))).Count,Is.Zero);
         }
         [Test]
-        public void BodyClearanceRejectsClaimEdgesAndBuildingEdges()
+        public void BodyClearanceRejectsClaimEdgesAndInteriorsButAllowsNarrowBuildingEdges()
         {
             var policy=new SettlementIdleMovementPolicy(SettlementState.CreatePrototype(4));
             Assert.That(policy.CanOccupy(new CitizenPosition(.1,2.5)),Is.False);
-            Assert.That(policy.CanOccupy(new CitizenPosition(6.9,9.5)),Is.False);
+            Assert.That(policy.CanOccupy(new CitizenPosition(7.5,9.5)),Is.False);
             Assert.That(policy.CanOccupy(new CitizenPosition(6.5,9.5)),Is.True);
             Assert.That(policy.CanOccupy(new CitizenPosition(20.5,9.5)),Is.False);
         }
@@ -97,7 +105,7 @@ namespace ColonyGame.World.Tests
             var state=SettlementState.CreatePrototype(4);
             state.TryPlacePrototypeBuilding(BuildingType.Farm,new TileCoordinate(2,2),90,out _);
             var policy=new SettlementIdleMovementPolicy(state);
-            var simulation=CitizenSimulation.CreatePrototype(state);
+            var simulation=CitizenSimulation.CreatePrototype(state,seed:1147);
             int moves=0,pauses=0;
             for(int tick=0;tick<1200;tick++)
             {
@@ -130,7 +138,7 @@ namespace ColonyGame.World.Tests
         public void BuildingOverCitizenSucceedsAndStartsNearestContinuousRecovery()
         {
             var state=SettlementState.CreatePrototype(4);
-            var simulation=CitizenSimulation.CreatePrototype(state);
+            var simulation=CitizenSimulation.CreatePrototype(state,seed:1147);
             var c=simulation.Citizens[0];var before=c.Position;
             int warnings=0;simulation.DevelopmentWarning+=_=>warnings++;
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.House,new TileCoordinate(4,4),0,out _),Is.True);

@@ -16,9 +16,9 @@ namespace ColonyGame.World.Tests
         private static SettlementBootstrap Create(bool single=false,double result=.1)
         {
             var state=SettlementState.CreatePrototype(4);
-            var simulation=CitizenSimulation.CreatePrototype(state);
+            var simulation=CitizenSimulation.CreatePrototype(state,seed:1147);
             if(single) simulation=new CitizenSimulation(new SettlementIdleMovementPolicy(state),new[]{simulation.Citizens[0]});
-            var bootstrap=new SettlementBootstrap(state,simulation,new BootstrapSettings(playerWorkSeconds:30,minimumCooldown:10000,maximumCooldown:10000));
+            var bootstrap=new SettlementBootstrap(state,simulation,new BootstrapSettings(startingWood:10,playerWorkSeconds:30,minimumCooldown:10000,maximumCooldown:10000));
             simulation.Gathering=new AmbientWoodGathering(bootstrap,new FixedRandom(result));
             return bootstrap;
         }
@@ -33,6 +33,8 @@ namespace ColonyGame.World.Tests
         {
             var site=Start(b);
             Assert.IsTrue(b.ContributeWork(site,ConstructionActor.Player,30));
+            // Explicit-hiring fixtures begin with a deliberately manual vacancy.
+            Assert.IsTrue(b.UnassignWorker(site));
             return site;
         }
         private static void Until(SettlementBootstrap b,Func<bool> done,int steps=2400)
@@ -196,7 +198,7 @@ namespace ColonyGame.World.Tests
             Until(b,()=>c.Task==CitizenTask.ReturningWood);
             Assert.AreEqual(10,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(3,b.Simulation.Gathering.PendingWood(c));
             Assert.AreEqual(1,b.Simulation.Gathering.SuccessRolls);
-            Assert.AreEqual(CitizenPosition.Center(b.Settlement.TownHall.Entrance.ExteriorTile).Tile,c.Destination.Tile);
+            Assert.AreEqual(PerimeterNavigation.Entrance(b.Settlement.TownHall).Tile,c.Destination.Tile);
         }
         [Test] public void SuccessfulReturnDepositsExactlyThreeOnceAndRestoresOrdinaryMovement()
         {
@@ -204,7 +206,7 @@ namespace ColonyGame.World.Tests
             Until(b,()=>!b.Simulation.Gathering.HasTrip(c));
             Assert.AreEqual(13,b.Resources.Amount(ResourceType.Wood)); Assert.AreEqual(1,b.Simulation.Gathering.SuccessRolls);
             Assert.AreEqual(0,b.Simulation.Gathering.PendingWood(c));
-            Assert.Less(c.Position.DistanceSquared(CitizenPosition.Center(b.Settlement.TownHall.Entrance.ExteriorTile)),1e-10);
+            Assert.Less(c.Position.DistanceSquared(PerimeterNavigation.Entrance(b.Settlement.TownHall)),1e-10);
             for(int i=0;i<100;i++) b.Simulation.Tick(.25);
             Assert.AreEqual(13,b.Resources.Amount(ResourceType.Wood));
             Assert.IsTrue(new SettlementIdleMovementPolicy(b.Settlement).CanOccupy(c.Position));
@@ -261,7 +263,7 @@ namespace ColonyGame.World.Tests
             Until(b,()=>c.Task==CitizenTask.ReturningWood);
             Assert.AreNotEqual(b.Settlement.TownHall.Entrance.ExteriorTile,c.Destination.Tile);
             Assert.IsTrue(b.Settlement.Territory.IsClaimed(c.Destination.Tile));
-            Assert.IsFalse(b.Settlement.IsOccupied(c.Destination.Tile));
+            Assert.IsTrue(PerimeterNavigation.ClearOfStructures(c.Destination,b.Settlement.Buildings));
             Until(b,()=>!b.Simulation.Gathering.HasTrip(c));
             Assert.AreEqual(13,b.Resources.Amount(ResourceType.Wood));
         }
@@ -282,11 +284,11 @@ namespace ColonyGame.World.Tests
         }
         [Test] public void CentralBalanceMatchesApprovedValuesAndRejectsInvalidConfiguration()
         {
-            var s=new BootstrapSettings(); Assert.AreEqual(10,s.StartingWood); Assert.AreEqual(25,s.HutWoodCost);
+            var s=new BootstrapSettings(); Assert.AreEqual(0,s.StartingWood); Assert.AreEqual(25,s.HutWoodCost);
             Assert.AreEqual(3,s.WoodYield); Assert.AreEqual(.9,s.SuccessChance); Assert.AreEqual(10,s.WildernessDepth);
             Assert.AreEqual(300,s.PlayerWorkSeconds); Assert.AreEqual(4,s.WildlifeDetectionRadius);
             Assert.Throws<ArgumentOutOfRangeException>(()=>new BootstrapSettings(successChance:1.1));
-            Assert.Throws<ArgumentOutOfRangeException>(()=>new BootstrapSettings(playerWorkSeconds:double.PositiveInfinity));
+            Assert.Throws<ArgumentOutOfRangeException>(()=>new BootstrapSettings(startingWood:10,playerWorkSeconds:double.PositiveInfinity));
         }
     }
 }

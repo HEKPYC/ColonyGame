@@ -39,7 +39,7 @@ namespace ColonyGame.Editor
 
             var cameraObject = new GameObject("Prototype Camera");
             cameraObject.tag = "MainCamera";
-            cameraObject.transform.rotation = Quaternion.Euler(70, 0, 0);
+            cameraObject.transform.rotation = Quaternion.Euler(55, 0, 0);
             cameraObject.transform.position = new Vector3(10, 0, 10) - cameraObject.transform.forward * 45;
             var camera = cameraObject.AddComponent<Camera>();
             camera.orthographic = true;

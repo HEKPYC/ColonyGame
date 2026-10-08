@@ -26,7 +26,7 @@ namespace ColonyGame.World
         public int MaximumGatherers { get; }
         public int PreferredGatherDepth { get; }
         public int DestinationCandidates { get; }
-        public BootstrapSettings(int startingWood=10, int hutWoodCost=25, int woodYield=3,
+        public BootstrapSettings(int startingWood=0, int hutWoodCost=25, int woodYield=3,
             double successChance=.9, int wildernessDepth=10, double playerWorkSeconds=300,
             double minimumCooldown=18, double maximumCooldown=32, double gatheringPause=3,
             double wildlifeDetectionRadius=4, double initialGatherDelay=4, double citizenGatherStagger=6,
@@ -54,6 +54,18 @@ namespace ColonyGame.World
     {
         private readonly Dictionary<ResourceType,int> amounts=new Dictionary<ResourceType,int>();
         private readonly Dictionary<string,string> transactions=new Dictionary<string,string>();
+        public Func<int> CapacityProvider {get;internal set;}
+        public int Capacity=>CapacityProvider?.Invoke()??int.MaxValue;
+        private readonly Dictionary<string,Tuple<ResourceType,int,int>> deposits=new Dictionary<string,Tuple<ResourceType,int,int>>();
+        public int Store(string id,ResourceType resource,int requested)
+        {
+            if(requested<0||!Enum.IsDefined(typeof(ResourceType),resource)||string.IsNullOrWhiteSpace(id)) throw new ArgumentException("Invalid deposit.");
+            if(deposits.TryGetValue(id,out var prior)) return prior.Item1==resource&&prior.Item2==requested?prior.Item3:0;
+            int accepted=Math.Min(requested,Math.Max(0,Capacity-Amount(resource)));
+            if(!TryTransaction(id,resource,accepted)) return 0;
+            deposits.Add(id,Tuple.Create(resource,requested,accepted));return accepted;
+        }
+        // Refund bundles intentionally bypass deposit limits while retaining atomic/idempotent accounting.
         public int Amount(ResourceType type)=>amounts.TryGetValue(type,out int n)?n:0;
         public bool CanPay(IReadOnlyDictionary<ResourceType,int> cost)=>cost.All(x=>x.Value>=0&&Amount(x.Key)>=x.Value);
         public bool TryPay(string id,IReadOnlyDictionary<ResourceType,int> cost)
@@ -85,19 +97,20 @@ namespace ColonyGame.World
         public string StorageBuildingId => Settlement.TownHall.Id;
         public IReadOnlyList<Citizen> Roster => Simulation.Citizens;
         public int EmployedCount=>Roster.Count(c=>c.Profession!=CitizenProfession.Unemployed);
-        public int UnemployedCount=>Roster.Count(c=>c.Profession==CitizenProfession.Unemployed);
+        public int UnemployedCount=>Roster.Count(c=>c.IsAdult&&c.Profession==CitizenProfession.Unemployed);
         public SettlementBootstrap(SettlementState settlement,CitizenSimulation simulation,BootstrapSettings settings=null)
         {
             Settlement=settlement??throw new ArgumentNullException(nameof(settlement));
             Simulation=simulation??throw new ArgumentNullException(nameof(simulation));
             Settings=settings??new BootstrapSettings();
+            Resources.CapacityProvider=()=>LivingRules.StorageCapacity(Settlement);
             Resources.TryTransaction("initial-wood",ResourceType.Wood,Settings.StartingWood);
         }
         public bool CanStartFirstHut => Resources.Amount(ResourceType.Wood)>=Settings.HutWoodCost;
         public bool TryStartFirstHut(TileCoordinate origin,int orientation,out BuildingState site)
         {
             site=null;
-            if(!CanStartFirstHut || Settlement.ValidateBuildingPlacement(BuildingType.BuildersHut,origin,orientation)!=BuildingPlacementValidity.Valid) return false;
+            if(!CanStartFirstHut || Settlement.ValidateAccessiblePlacement(BuildingType.BuildersHut,origin,orientation)!=BuildingPlacementValidity.Valid) return false;
             if(!Resources.TryTransaction("hut-materials-"+Guid.NewGuid().ToString("N"),ResourceType.Wood,-Settings.HutWoodCost)) return false;
             site=Settlement.AddConstructionSite(BuildingType.BuildersHut,origin,orientation,Settings.PlayerWorkSeconds);
             site.Invest(new Dictionary<ResourceType,int>{{ResourceType.Wood,Settings.HutWoodCost}});
@@ -122,20 +135,49 @@ namespace ColonyGame.World
             if(site.ConstructionWork<site.RequiredConstructionWork) return false;
             site.ConstructionStage=ConstructionStage.Completed;
             Settlement.ApplyBuildingInfluence(site);
+            FillAutomaticVacancies();
             return true;
         }
         public Citizen WorkerAt(BuildingState building)=>building==null?null:Roster.FirstOrDefault(c=>c.WorkplaceBuildingId==building.Id);
         public IEnumerable<Citizen> EligibleWorkers(BuildingState building)=>building!=null&&Settlement.Buildings.Contains(building)&&
             BuildingEconomyRules.Profession(building.Type)!=CitizenProfession.Unemployed&&building.IsCompleted&&WorkerAt(building)==null
-            ?Roster.Where(AmbientWoodGathering.IsEligible):Enumerable.Empty<Citizen>();
+            ?Roster.Where(c=>c.CanWork&&c.Profession==CitizenProfession.Unemployed&&c.WorkplaceBuildingId==null):Enumerable.Empty<Citizen>();
         public bool TryAssignBuilder(BuildingState building,string citizenId)=>building!=null&&building.Type==BuildingType.BuildersHut&&TryAssignWorker(building,citizenId);
         public bool TryAssignWorker(BuildingState building,string citizenId)
         {
             var citizen=EligibleWorkers(building).FirstOrDefault(c=>c.Id==citizenId);
             if(citizen==null) return false;
+            building.ManualVacancy=false;
             citizen.WorkplaceBuildingId=building.Id;
             citizen.Profession=BuildingEconomyRules.Profession(building.Type);
             return true;
+        }
+        // Only unlocked vacancies are considered; existing employment and Builder jobs are untouched.
+        public void FillAutomaticVacancies()
+        {
+            foreach(var building in Settlement.Buildings.Where(b=>b.IsCompleted&&!b.ManualVacancy&&WorkerAt(b)==null&&
+                BuildingEconomyRules.Profession(b.Type)!=CitizenProfession.Unemployed))
+            {
+                var citizen=EligibleWorkers(building).FirstOrDefault();
+                if(citizen!=null) TryAssignWorker(building,citizen.Id);
+            }
+        }
+        public bool UnassignWorker(BuildingState building)
+        {
+            var worker=WorkerAt(building);if(worker==null) return false;
+            building.ManualVacancy=true;
+            Economy?.ReleaseBuilder(worker);worker.WorkplaceBuildingId=null;worker.Profession=CitizenProfession.Unemployed;
+            worker.ScheduledTask=CitizenTask.Idle;
+            if(Simulation.Gathering?.HasTrip(worker)!=true) {worker.Route.Clear();worker.Destination=worker.Position;}
+            return true;
+        }
+        public bool TransferWorker(BuildingState building,string citizenId)
+        {
+            var citizen=Roster.FirstOrDefault(c=>c.Id==citizenId);
+            if(citizen==null||!citizen.CanWork||building==null||!Settlement.Buildings.Contains(building)||!building.IsCompleted||
+                BuildingEconomyRules.Profession(building.Type)==CitizenProfession.Unemployed) return false;
+            // Retained API cannot bypass the explicit fire-then-hire rule.
+            return citizen.WorkplaceBuildingId==null&&TryAssignWorker(building,citizenId);
         }
         public string WorkplaceName(Citizen citizen)=>Settlement.Buildings.FirstOrDefault(b=>b.Id==citizen.WorkplaceBuildingId)?.Definition.DisplayName??"None";
     }

@@ -12,10 +12,16 @@ namespace ColonyGame.World
         public int Capacity=>Buildings.Sum(BuildingEconomyRules.ResidenceCapacity);
         public int Homeless=>bootstrap.Roster.Count(c=>c.ResidenceBuildingId==null);
         public IEnumerable<Citizen> Residents(BuildingState building)=>bootstrap.Roster.Where(c=>c.ResidenceBuildingId==building.Id);
-        public BuildingState FreeResidence=>Buildings.FirstOrDefault(b=>Residents(b).Count()<BuildingEconomyRules.ResidenceCapacity(b));
-        public bool Assign(Citizen citizen,BuildingState building)
+        public BuildingState FreeResidence=>Buildings.OrderBy(Preference).FirstOrDefault(b=>Residents(b).Count()<BuildingEconomyRules.ResidenceCapacity(b));
+        public bool CanAssign(Citizen citizen,BuildingState building)=>citizen!=null&&citizen.Active&&bootstrap.Roster.Contains(citizen)&&
+            building!=null&&Buildings.Contains(building)&&(citizen.ResidenceBuildingId==building.Id||Residents(building).Count()<BuildingEconomyRules.ResidenceCapacity(building));
+        public bool Assign(Citizen citizen,BuildingState building)=>Assign(citizen,building,true);
+        internal bool AssignAutomatic(Citizen citizen,BuildingState building)=>
+            (citizen.PreferredResidenceId==null||citizen.PreferredResidenceId==building.Id)&&Assign(citizen,building,false);
+        private bool Assign(Citizen citizen,BuildingState building,bool explicitChoice)
         {
-            if(!bootstrap.Roster.Contains(citizen)||!Buildings.Contains(building)) return false;
+            if(!CanAssign(citizen,building)) return false;
+            if(explicitChoice) citizen.PreferredResidenceId=building.Id;
             if(citizen.ResidenceBuildingId==building.Id) return true;
             if(Residents(building).Count()>=BuildingEconomyRules.ResidenceCapacity(building)) return false;
                         citizen.ResidenceBuildingId=building.Id;
@@ -27,16 +33,31 @@ namespace ColonyGame.World
             }
             return true;
         }
+        private static int Preference(BuildingState b)=>b.Type==BuildingType.House?0:b.Type==BuildingType.Tavern?1:2;
         public void Reconcile()
         {
             foreach(var citizen in bootstrap.Roster)
-                if(!Buildings.Any(b=>b.Id==citizen.ResidenceBuildingId)) citizen.ResidenceBuildingId=null;
+                {
+                    if(!Buildings.Any(b=>b.Id==citizen.PreferredResidenceId)) citizen.PreferredResidenceId=null;
+                    if(!Buildings.Any(b=>b.Id==citizen.ResidenceBuildingId)) citizen.ResidenceBuildingId=null;
+                }
             foreach(var building in Buildings)
                 foreach(var excess in Residents(building).Skip(BuildingEconomyRules.ResidenceCapacity(building)).ToArray()) excess.ResidenceBuildingId=null;
+            var visited=new HashSet<string>();
+            foreach(var citizen in bootstrap.Roster)
+            {
+                if(citizen.PreferredResidenceId!=null||!visited.Add(citizen.Id)) continue;
+                var group=bootstrap.Roster.Where(c=>c.PreferredResidenceId==null&&(c==citizen||c.Id==citizen.PartnerId||
+                    !c.IsAdult&&(c.ParentOneId==citizen.Id||c.ParentTwoId==citizen.Id||citizen.PartnerId!=null&&(c.ParentOneId==citizen.PartnerId||c.ParentTwoId==citizen.PartnerId)))).ToArray();
+                foreach(var member in group) visited.Add(member.Id);
+                var current=Buildings.FirstOrDefault(b=>b.Id==citizen.ResidenceBuildingId);
+                var preferred=Buildings.OrderBy(Preference).FirstOrDefault(b=>(current==null||Preference(b)<Preference(current))&&
+                    BuildingEconomyRules.ResidenceCapacity(b)-Residents(b).Count(c=>!group.Contains(c))>=group.Length);
+                if(preferred!=null) foreach(var member in group) Assign(member,preferred,false);
+            }
             foreach(var citizen in bootstrap.Roster.Where(c=>c.ResidenceBuildingId==null))
             {
-                var residence=FreeResidence;
-                if(residence!=null) citizen.ResidenceBuildingId=residence.Id;
+                var residence=FreeResidence;if(residence!=null) Assign(citizen,residence,false);
             }
         }
     }
@@ -113,7 +134,7 @@ namespace ColonyGame.World
             }
             return new RecruitmentCandidate(citizen,tavern,day,new System.Collections.ObjectModel.ReadOnlyDictionary<ResourceType,int>(request));
         }
-        public bool CanRecruit(RecruitmentCandidate candidate)=>candidate!=null&&candidates.Contains(candidate)&&economy.Residences.FreeResidence!=null&&
+        public bool CanRecruit(RecruitmentCandidate candidate)=>candidate!=null&&economy.Living.HasReserveFor(candidate.Citizen,candidate.Request)&&candidates.Contains(candidate)&&economy.Residences.FreeResidence!=null&&
             economy.Bootstrap.Resources.CanPay(candidate.Request)&&economy.Access(economy.Bootstrap.Settlement.Buildings.FirstOrDefault(b=>b.Id==candidate.TavernId),candidate.Citizen)!=null;
         public bool Recruit(RecruitmentCandidate candidate)
         {
@@ -121,9 +142,9 @@ namespace ColonyGame.World
             var tavern=economy.Bootstrap.Settlement.Buildings.First(b=>b.Id==candidate.TavernId);
             var access=economy.Access(tavern,candidate.Citizen);
             if(!economy.Bootstrap.Resources.TryPay("recruit-"+candidate.Citizen.Id,candidate.Request)) return false;
-            candidate.Citizen.Position=candidate.Citizen.Destination=CitizenPosition.Center(access.Value);
+            candidate.Citizen.Position=candidate.Citizen.Destination=access.Value;
             economy.Bootstrap.Simulation.AddCitizen(candidate.Citizen);
-            economy.Residences.Reconcile();candidates.Remove(candidate);return true;
+            economy.Residences.Reconcile();economy.Bootstrap.FillAutomaticVacancies();candidates.Remove(candidate);return true;
         }
         public void RemoveTavern(string id)=>candidates.RemoveAll(c=>c.TavernId==id);
     }

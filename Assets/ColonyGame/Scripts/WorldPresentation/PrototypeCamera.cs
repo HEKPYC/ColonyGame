@@ -14,7 +14,12 @@ namespace ColonyGame.Presentation
         private Rect inspectionBounds = Rect.MinMaxRect(-6, -6, 26, 26);
         public void SetInspectionBounds(float minX, float minZ, float maxX, float maxZ)
         { inspectionBounds = Rect.MinMaxRect(minX, minZ, maxX, maxZ); }
-        private void Awake() { view = GetComponent<Camera>(); }
+        private void Awake()
+        {
+            view = GetComponent<Camera>();
+            transform.rotation=Quaternion.Euler(55,0,0);
+            transform.position=focus-transform.forward*45;
+        }
         private void Update()
         {
             var keys = Keyboard.current;

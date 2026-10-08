@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace ColonyGame.World
 {
@@ -22,7 +23,7 @@ namespace ColonyGame.World
 
     public enum BuildingPlacementValidity
     {
-        Valid, OutsideTerritory, Occupied, Locked, NotPlayerPlaceable, UnknownType, InvalidOrientation, InsufficientResources, ConstructionDeferred
+        Valid, OutsideTerritory, Occupied, Locked, NotPlayerPlaceable, UnknownType, InvalidOrientation, InsufficientResources, ConstructionDeferred, AccessBlocked
     }
 
     public sealed class BuildingState
@@ -38,6 +39,7 @@ namespace ColonyGame.World
         public ConstructionStage ConstructionStage { get; internal set; }
         public bool IsCompleted => ConstructionStage == ConstructionStage.Completed || IsUpgrading;
         public int Level { get; internal set; } = 1;
+        public bool ManualVacancy { get; internal set; }
         public bool IsUpgrading { get; internal set; }
         public int TargetLevel { get; internal set; } = 1;
         internal readonly Dictionary<ResourceType,int> investment = new Dictionary<ResourceType,int>();
@@ -81,6 +83,7 @@ namespace ColonyGame.World
     {
         private readonly List<BuildingState> buildings = new List<BuildingState>();
         private readonly HashSet<TileCoordinate> occupied = new HashSet<TileCoordinate>();
+        internal CitizenSimulation InitialCitizens;
         public SettlementTerritory Territory { get; }
         public BuildingState TownHall { get; }
         public int TownHallLevel => TownHall.Level;
@@ -127,6 +130,36 @@ namespace ColonyGame.World
                 }
             }
             return overlap ? BuildingPlacementValidity.Occupied : BuildingPlacementValidity.Valid;
+        }
+
+        public IEnumerable<TileCoordinate> ExteriorAccessTiles(BuildingState building)=>building.OccupiedTiles
+            .SelectMany(CitizenNavigation.Neighbors).Distinct().Where(t=>Territory.IsClaimed(t)&&!IsOccupied(t))
+            .OrderBy(t=>t.Equals(building.Entrance.ExteriorTile)?0:1).ThenBy(t=>t.Z).ThenBy(t=>t.X);
+
+        // Runtime placement preserves one connected outdoor network serving every building
+        // and an actual Wilderness boundary. Interiors remain solid; fixtures retain geometric placement.
+        public BuildingPlacementValidity ValidateAccessiblePlacement(BuildingType type,TileCoordinate origin,int orientationDegrees=0)
+        {
+            var validity=ValidateBuildingPlacement(type,origin,orientationDegrees);
+            if(validity!=BuildingPlacementValidity.Valid) return validity;
+            var proposed=new BuildingState("placement-check",BuildingCatalog.Get(type),origin,orientationDegrees);
+            var all=buildings.Concat(new[]{proposed}).ToArray();
+            bool Walk(CitizenPosition p)=>PerimeterNavigation.CanOccupy(p,Territory,all);
+            foreach(var access in PerimeterNavigation.AccessPoints(TownHall))
+            {
+                var network=PerimeterNavigation.Reachable(access,Walk);
+                if(network.Count==0) continue;
+                bool wilderness=Territory.ClaimedTiles.Any(t=>CitizenNavigation.Neighbors(t).Where(n=>!Territory.IsClaimed(n)).Any(n=>
+                {
+                    var edge=new CitizenPosition(t.X+.5+(n.X-t.X)*.5,t.Z+.5+(n.Z-t.Z)*.5);
+                    return Walk(edge)&&PerimeterNavigation.Contains(network,edge)||
+                        Walk(CitizenPosition.Center(t))&&PerimeterNavigation.Contains(network,CitizenPosition.Center(t));
+                }));
+                if(wilderness&&all.All(b=>PerimeterNavigation.AccessPoints(b).Any(p=>Walk(p)&&PerimeterNavigation.Contains(network,p))))
+                    return BuildingPlacementValidity.Valid;
+                break;
+            }
+            return BuildingPlacementValidity.AccessBlocked;
         }
 
         public bool TryPlacePrototypeBuilding(BuildingType type, TileCoordinate origin, int orientationDegrees, out BuildingState building)

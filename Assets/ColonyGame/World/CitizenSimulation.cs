@@ -45,10 +45,12 @@ namespace ColonyGame.World
             random=new Random(seed);
             foreach(var citizen in list) citizen.Pause=PauseDuration();
         }
-        public static CitizenSimulation CreatePrototype(SettlementState settlement,CitizenMovementSettings settings=null,int seed=1147)
+        public static CitizenSimulation CreatePrototype(SettlementState settlement,CitizenMovementSettings settings=null,int? seed=null, IEnumerable<string> maleNames=null, IEnumerable<string> femaleNames=null)
         {
+            if(settlement.InitialCitizens!=null) return settlement.InitialCitizens;
+            int actualSeed=seed??Guid.NewGuid().GetHashCode();
             var policy=new SettlementIdleMovementPolicy(settlement);
-            var random=new Random(seed);
+            var random=new Random(actualSeed);
             var hall=settlement.TownHall;
             var preferred=new[]{
                 new TileCoordinate(hall.Origin.X-1,hall.Origin.Z-1),
@@ -58,13 +60,21 @@ namespace ColonyGame.World
             var positions=preferred.Concat(policy.CandidateTiles.OrderBy(t=>t.Z).ThenBy(t=>t.X))
                 .Distinct().Where(t=>policy.CanOccupy(CitizenPosition.Center(t))).Take(4).ToArray();
             if(positions.Length!=4) throw new InvalidOperationException("Four walkable starting citizen positions are required.");
-            var names=new[]{"Edwin","Owen","Clara","Nora"};
+            var pools=new[]{(maleNames??new[]{"Edwin","Owen","Arthur","Felix","Hugh","Leo","Simon","Tobias"}).Distinct().ToList(),
+                (femaleNames??new[]{"Clara","Nora","Alice","Beatrice","Eva","Iris","Mabel","Rose"}).Distinct().ToList()};
+            if(pools.Any(pool=>pool.Count<2||pool.Any(string.IsNullOrWhiteSpace))) throw new ArgumentException("Each name pool needs two distinct nonempty names.");
+            var used=new HashSet<string>();
             var citizens=new List<Citizen>();
             for(int i=0;i<4;i++)
-                citizens.Add(new Citizen("prototype-citizen-"+(i+1),names[i],i<2?CitizenSex.Male:CitizenSex.Female,
+            {
+                var names=pools[i<2?0:1].Where(n=>!used.Contains(n)).ToList();
+                if(names.Count==0) throw new ArgumentException("Name pools cannot exhaust unique initial names.");
+                string name=names[random.Next(names.Count)];used.Add(name);
+                citizens.Add(new Citizen("prototype-citizen-"+(i+1),name,i<2?CitizenSex.Male:CitizenSex.Female,
                     random.Next(18,46),new CitizenAttributes(random.Next(1,11),random.Next(1,11),random.Next(1,11),random.Next(1,11),random.Next(1,11)),
                     CitizenPosition.Center(positions[i])));
-            return new CitizenSimulation(policy,citizens,settings,seed);
+            }
+            return settlement.InitialCitizens=new CitizenSimulation(policy,citizens,settings,actualSeed);
         }
         public bool AddCitizen(Citizen citizen)
         {
@@ -77,16 +87,19 @@ namespace ColonyGame.World
             Gathering?.RemoveCitizen(citizen);
             citizen.Active=false; citizen.Route.Clear(); citizen.GatheringTask=citizen.ScheduledTask=CitizenTask.Idle;
             citizen.Profession=CitizenProfession.Unemployed;citizen.Movement=CitizenMovement.Idle;citizen.Destination=citizen.Position;
-            citizen.WorkplaceBuildingId=null; citizen.ResidenceBuildingId=null; citizen.InsideBuildingId=null;
+            citizen.WorkplaceBuildingId=null; citizen.ResidenceBuildingId=null; citizen.PreferredResidenceId=null; citizen.InsideBuildingId=null;
             return true;
         }
         internal bool TravelTo(Citizen citizen,TileCoordinate target,double seconds,double speed)
         {
-            if(!Walkable(target)) return false;
-            var destination=CitizenPosition.Center(target);
+            return TravelTo(citizen,CitizenPosition.Center(target),seconds,speed);
+        }
+        internal bool TravelTo(Citizen citizen,CitizenPosition destination,double seconds,double speed)
+        {
+            if(!policy.CanOccupy(destination)) return false;
             if(citizen.Destination.DistanceSquared(destination)>1e-9||citizen.Route.Count==0&&citizen.Position.DistanceSquared(destination)>1e-9)
             {
-                var route=CitizenNavigation.FindPath(citizen.Position.Tile,target,Walkable);
+                var route=PerimeterNavigation.FindPath(citizen.Position,destination,policy.CanOccupy);
                 if(route.Count==0) return false;
                 SetRoute(citizen,route,CitizenMovement.Walking);
             }
@@ -114,6 +127,12 @@ namespace ColonyGame.World
         {
             citizen.RecoveryTiles.Clear();
             citizen.Movement=citizen.Route.Count>0?CitizenMovement.Walking:CitizenMovement.Idle;
+        }
+        private void SetRoute(Citizen citizen,IReadOnlyList<CitizenPosition> route,CitizenMovement movement)
+        {
+            citizen.Route.Clear();citizen.RecoveryTiles.Clear();
+            foreach(var p in route) if(p.DistanceSquared(citizen.Position)>1e-12) citizen.Route.Enqueue(p);
+            citizen.Destination=route[route.Count-1];citizen.Movement=citizen.Route.Count>0?movement:CitizenMovement.Idle;citizen.Pause=0;
         }
         private void SetRoute(Citizen citizen,IReadOnlyList<TileCoordinate> route,CitizenMovement movement)
         {
@@ -174,9 +193,8 @@ namespace ColonyGame.World
                     if(!policy.CanOccupy(citizen.Destination)||citizen.Route.Any(p=>!policy.CanOccupy(p)))
                     {
                         citizen.Route.Clear(); citizen.RecoveryTiles.Clear();
-                        var center=CitizenPosition.Center(citizen.Position.Tile);
-                        citizen.Route.Enqueue(center); citizen.Destination=center;
-                        citizen.Movement=CitizenMovement.Walking;
+                        citizen.Destination=citizen.Position;
+                        citizen.Movement=CitizenMovement.Idle;
                     }
                 }
             }
@@ -193,7 +211,8 @@ namespace ColonyGame.World
                 {
                     citizen.Pause-=seconds;
                     if(citizen.Pause>0) continue;
-                    var choices=CitizenNavigation.NearbyRoutes(citizen.Position.Tile,Walkable,settings.WanderSteps);
+                    var choices=settlementPolicy?.Settlement!=null?PerimeterNavigation.Nearby(citizen.Position,policy.CanOccupy,settings.WanderSteps):
+                        CitizenNavigation.NearbyRoutes(citizen.Position.Tile,Walkable,settings.WanderSteps).Select(r=>(IReadOnlyList<CitizenPosition>)r.Select(CitizenPosition.Center).ToArray()).ToArray();
                     if(choices.Count==0) { citizen.Pause=PauseDuration(); continue; }
                     SetRoute(citizen,choices[random.Next(choices.Count)],CitizenMovement.Walking);
                 }

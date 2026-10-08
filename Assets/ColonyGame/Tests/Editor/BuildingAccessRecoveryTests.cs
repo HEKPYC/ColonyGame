@@ -75,7 +75,7 @@ namespace ColonyGame.World.Tests
             Assert.That(state.IsOccupied(building.Entrance.FootprintTile),Is.True);
         }
         [Test]
-        public void SealedBuildersHutPocketStartsContinuousMinimalRecovery()
+        public void TouchingHutsKeepPocketConnectedWithoutCrossingInteriors()
         {
             var state=ThreeHuts();var policy=new SettlementIdleMovementPolicy(state);
             var c=Adult(new CitizenPosition(2.5,4.5));var simulation=new CitizenSimulation(policy,new[]{c});
@@ -84,11 +84,11 @@ namespace ColonyGame.World.Tests
             Assert.That(state.TryPlacePrototypeBuilding(BuildingType.BuildersHut,new TileCoordinate(-1,4),0,out _),Is.True);
             var before=c.Position;simulation.ReconcileBuildings();
             Assert.That(policy.CanOccupy(c.Position),Is.True);
-            Assert.That(policy.IsConnected(c.Position),Is.False);
-            Assert.That(c.Movement,Is.EqualTo(CitizenMovement.Recovering));
+            Assert.That(policy.IsConnected(c.Position),Is.True);
+            Assert.That(c.Movement,Is.Not.EqualTo(CitizenMovement.Recovering));
             Assert.That(c.Position.DistanceSquared(before),Is.Zero);
             Assert.That(policy.IsConnected(c.Destination),Is.True);
-            Assert.That(c.PlannedRoute.Count(p=>state.IsOccupied(p.Tile)),Is.EqualTo(2));
+            Assert.That(c.PlannedRoute.All(policy.CanOccupy),Is.True);
             bool arrived=false;
             for(int i=0;i<300;i++)
             {

@@ -40,14 +40,26 @@ namespace ColonyGame.World
                 }
             return true;
         }
-        public bool CanOccupy(CitizenPosition p)=>Eligible(p,false);
+        public bool CanOccupy(CitizenPosition p)=>settlement==null?Eligible(p,false):PerimeterNavigation.CanOccupy(p,territory,settlement.Buildings);
+        internal SettlementState Settlement=>settlement;
+        private HashSet<TileCoordinate> edgeConnected=new HashSet<TileCoordinate>();
         // Search permission is not movement permission. Actual recovery uses a route whitelist.
         public bool CanTraverseRecovery(CitizenPosition p,CitizenPosition origin)=>Eligible(p,true);
         public bool CanFollowRecovery(CitizenPosition p,ISet<TileCoordinate> permitted)=>permitted!=null&&Eligible(p,true,permitted);
         public bool IsOccupied(TileCoordinate tile)=>occupied(tile);
-        public bool IsConnected(CitizenPosition p)=>CanOccupy(p)&&connected.Contains(p.Tile);
+        public bool IsConnected(CitizenPosition p)=>CanOccupy(p)&&(settlement==null?connected.Contains(p.Tile):PerimeterNavigation.Contains(edgeConnected,p));
         public void RefreshConnectivity()
         {
+            if(settlement!=null)
+            {
+                var seed=CandidateTiles.OrderBy(t=>t.Z).ThenBy(t=>t.X).Where(t=>CanOccupy(CitizenPosition.Center(t))).Select(t=>(TileCoordinate?)t).FirstOrDefault();
+                // A completely reserved territory still has navigable footprint edges.
+                var start=seed.HasValue?CitizenPosition.Center(seed.Value):PerimeterNavigation.Entrance(settlement.TownHall);
+                edgeConnected=PerimeterNavigation.Reachable(start,CanOccupy);
+                connected=new HashSet<TileCoordinate>(CandidateTiles.Where(t=>CanOccupy(CitizenPosition.Center(t))&&PerimeterNavigation.Contains(edgeConnected,CitizenPosition.Center(t))));
+                NavigationAnchor=connected.Count==0?(TileCoordinate?)null:connected.OrderBy(t=>t.Z).ThenBy(t=>t.X).First();
+                return;
+            }
             var walkable=new HashSet<TileCoordinate>(CandidateTiles.Where(t=>CanOccupy(CitizenPosition.Center(t))));
             var remaining=new HashSet<TileCoordinate>(walkable);
             var best=new HashSet<TileCoordinate>();
@@ -202,6 +214,92 @@ namespace ColonyGame.World
                     }
             }
             return routes;
+        }
+    }
+
+    // Half-tile cardinal graph. Footprint edges, not occupied tile centers, are walkable.
+    public static class PerimeterNavigation
+    {
+        public const double StructuralInset = Citizen.BodyHalfExtent + .08;
+        public static CitizenPosition Entrance(BuildingState b)=>new CitizenPosition(
+            b.Entrance.FootprintTile.X+.5+b.Entrance.Facing.X*.5,
+            b.Entrance.FootprintTile.Z+.5+b.Entrance.Facing.Z*.5);
+        public static IEnumerable<CitizenPosition> AccessPoints(BuildingState b)
+        {
+            yield return Entrance(b);
+            for(int x=0;x<b.Width;x++)
+            { yield return new CitizenPosition(b.Origin.X+x+.5,b.Origin.Z);yield return new CitizenPosition(b.Origin.X+x+.5,b.Origin.Z+b.Depth); }
+            for(int z=0;z<b.Depth;z++)
+            { yield return new CitizenPosition(b.Origin.X,b.Origin.Z+z+.5);yield return new CitizenPosition(b.Origin.X+b.Width,b.Origin.Z+z+.5); }
+        }
+        public static bool ClearOfStructures(CitizenPosition p,IEnumerable<BuildingState> buildings)
+        {
+            double r=Citizen.BodyHalfExtent;
+            foreach(var b in buildings)
+                if(p.X+r>b.Origin.X+StructuralInset&&p.X-r<b.Origin.X+b.Width-StructuralInset&&
+                    p.Z+r>b.Origin.Z+StructuralInset&&p.Z-r<b.Origin.Z+b.Depth-StructuralInset) return false;
+            return true;
+        }
+        public static bool CanOccupy(CitizenPosition p,SettlementTerritory territory,IEnumerable<BuildingState> buildings)
+        {
+            double r=Citizen.BodyHalfExtent;
+            bool boundary=buildings.Any(b=>
+                ((Math.Abs(p.X-b.Origin.X)<1e-9||Math.Abs(p.X-b.Origin.X-b.Width)<1e-9)&&p.Z>=b.Origin.Z&&p.Z<=b.Origin.Z+b.Depth)||
+                ((Math.Abs(p.Z-b.Origin.Z)<1e-9||Math.Abs(p.Z-b.Origin.Z-b.Depth)<1e-9)&&p.X>=b.Origin.X&&p.X<=b.Origin.X+b.Width));
+            for(int z=(int)Math.Floor(p.Z-r);z<=(int)Math.Floor(p.Z+r);z++)
+                for(int x=(int)Math.Floor(p.X-r);x<=(int)Math.Floor(p.X+r);x++)
+                    if(!territory.IsClaimed(new TileCoordinate(x,z))&&!boundary) return false;
+            return ClearOfStructures(p,buildings);
+        }
+        public static bool SegmentClear(CitizenPosition a,CitizenPosition b,Func<CitizenPosition,bool> walk)
+        {
+            int steps=Math.Max(1,(int)Math.Ceiling(Math.Sqrt(a.DistanceSquared(b))/.05));
+            for(int i=0;i<=steps;i++)
+                if(!walk(new CitizenPosition(a.X+(b.X-a.X)*i/steps,a.Z+(b.Z-a.Z)*i/steps))) return false;
+            return true;
+        }
+        private static CitizenPosition Position(TileCoordinate node)=>new CitizenPosition(node.X*.5,node.Z*.5);
+        private static TileCoordinate? Attach(CitizenPosition start,Func<CitizenPosition,bool> walk)
+        {
+            if(!walk(start)) return null;
+            var nearest=new TileCoordinate((int)Math.Round(start.X*2),(int)Math.Round(start.Z*2));
+            return walk(Position(nearest))&&SegmentClear(start,Position(nearest),walk)?nearest:(TileCoordinate?)null;
+        }
+        public static IReadOnlyList<CitizenPosition> FindPath(CitizenPosition start,CitizenPosition end,Func<CitizenPosition,bool> walk)
+        {
+            var a=Attach(start,walk);var b=Attach(end,walk);
+            if(!a.HasValue||!b.HasValue) return Array.Empty<CitizenPosition>();
+            var route=CitizenNavigation.FindPath(a.Value,b.Value,n=>walk(Position(n)));
+            if(route.Count==0) return Array.Empty<CitizenPosition>();
+            var result=route.Select(Position).ToList();
+            if(result[result.Count-1].DistanceSquared(end)>1e-12) result.Add(end);
+            return result;
+        }
+        public static HashSet<TileCoordinate> Reachable(CitizenPosition start,Func<CitizenPosition,bool> walk)
+        {
+            var node=Attach(start,walk);
+            return node.HasValue?CitizenNavigation.ReachableTiles(node.Value,n=>walk(Position(n))):new HashSet<TileCoordinate>();
+        }
+        public static bool Contains(HashSet<TileCoordinate> nodes,CitizenPosition p)=>nodes.Contains(new TileCoordinate((int)Math.Round(p.X*2),(int)Math.Round(p.Z*2)));
+        public static IReadOnlyList<IReadOnlyList<CitizenPosition>> Nearby(CitizenPosition start,Func<CitizenPosition,bool> walk,int steps)
+        {
+            var node=Attach(start,walk);
+            return node.HasValue?CitizenNavigation.NearbyRoutes(node.Value,n=>walk(Position(n)),steps*2)
+                .Select(r=>(IReadOnlyList<CitizenPosition>)r.Select(Position).ToArray()).ToArray():Array.Empty<IReadOnlyList<CitizenPosition>>();
+        }
+        // Unit boundary segments are canonical and deduplicated, including shared edges.
+        public static IEnumerable<(CitizenPosition Start,CitizenPosition End)> Segments(IEnumerable<BuildingState> buildings)
+        {
+            var keys=new HashSet<(int X,int Z,bool Vertical)>();
+            foreach(var b in buildings)
+            {
+                for(int x=b.Origin.X;x<b.Origin.X+b.Width;x++)
+                {keys.Add((x,b.Origin.Z,false));keys.Add((x,b.Origin.Z+b.Depth,false));}
+                for(int z=b.Origin.Z;z<b.Origin.Z+b.Depth;z++)
+                {keys.Add((b.Origin.X,z,true));keys.Add((b.Origin.X+b.Width,z,true));}
+            }
+            foreach(var k in keys.OrderBy(k=>k.Z).ThenBy(k=>k.X).ThenBy(k=>k.Vertical))
+                yield return (new CitizenPosition(k.X,k.Z),new CitizenPosition(k.X+(k.Vertical?0:1),k.Z+(k.Vertical?1:0)));
         }
     }
 }
